@@ -614,9 +614,9 @@ void init_settings() {
 }
 
 void
-process_args(int argc, char **argv, thread_data tdata)
+process_args(int argc, char **argv, thread_data *tdata)
 {
-    decoder_options *dopt = tdata.dopt;
+    decoder_options *dopt = tdata->dopt;
     int result;
     int option_index;
     int val;
@@ -664,16 +664,16 @@ process_args(int argc, char **argv, thread_data tdata)
             val = atoi(optarg);
             switch(val) {
             case 11:
-                tdata.lnb = 1;
+                tdata->lnb = 1;
                 break;
             case 15:
-                tdata.lnb = 2;
+                tdata->lnb = 2;
                 break;
             default:
-                tdata.lnb = 0;
+                tdata->lnb = 0;
                 break;
             }
-            fprintf(stderr, "LNB = %s\n", voltage[tdata.lnb]);
+            fprintf(stderr, "LNB = %s\n", voltage[tdata->lnb]);
             break;
         case 'r':
             dopt->round = atoi(optarg);
@@ -709,6 +709,24 @@ process_args(int argc, char **argv, thread_data tdata)
             Settings.use_lch = TRUE;
             break;
         }
+    }
+
+    if (!Settings.use_http) {
+        if(argc - optind < 3) {
+            if(argc - optind == 2 && Settings.use_udp) {
+                fprintf(stderr, "Fileless UDP broadcasting\n");
+                Settings.fileless = TRUE;
+                tdata->wfd = -1;
+            }
+            else {
+                fprintf(stderr, "Some required parameters are missing!\n");
+                fprintf(stderr, "Try '%s --help' for more information.\n", argv[0]);
+                exit(1);
+            }
+        }
+        Settings.channel = argv[optind];
+        Settings.rectime = argv[optind + 1];
+        Settings.destfile = argv[optind + 2];
     }
 }
 
@@ -812,7 +830,7 @@ main(int argc, char **argv)
 
     init_settings();
 
-    process_args(argc, argv, tdata);
+    process_args(argc, argv, &tdata);
 
 if(Settings.use_http){	// http-server add-
 	fprintf(stderr, "run as a daemon..\n");
@@ -861,41 +879,29 @@ if(Settings.use_http){	// http-server add-
 	if(tdata.recsec == -1)
 		tdata.indefinite = TRUE;
 }else{	// -http-server add
-    if(argc - optind < 3) {
-        if(argc - optind == 2 && Settings.use_udp) {
-            fprintf(stderr, "Fileless UDP broadcasting\n");
-            Settings.fileless = TRUE;
-            tdata.wfd = -1;
-        }
-        else {
-            fprintf(stderr, "Some required parameters are missing!\n");
-            fprintf(stderr, "Try '%s --help' for more information.\n", argv[0]);
-            return 1;
-        }
-    }
 
     fprintf(stderr, "pid = %d\n", getpid());
 
     if(Settings.use_lch){
-        set_lch(argv[optind], &pch, &Settings.sid_list, &Settings.tsid);
+        set_lch(Settings.channel, &pch, &Settings.sid_list, &Settings.tsid);
         if(Settings.sid_list) Settings.use_splitter = TRUE;
         fprintf(stderr, "tsid = 0x%x\n", Settings.tsid);
     }
-    if(pch == NULL) pch = argv[optind];
+    if(pch == NULL) pch = Settings.channel;
 
     /* tune */
     if(tune(pch, &tdata, Settings.dev_num, Settings.tsid) != 0)
         return 1;
 
     /* set recsec */
-    if(parse_time(argv[optind + 1], &tdata.recsec) != 0) // no other thread --yaz
+    if(parse_time(Settings.rectime, &tdata.recsec) != 0) // no other thread --yaz
         return 1;
 
     if(tdata.recsec == -1)
         tdata.indefinite = TRUE;
 
     /* open output file */
-    char *destfile = argv[optind + 2];
+    char *destfile = Settings.destfile;
     if(destfile && !strcmp("-", destfile)) {
         Settings.use_stdout = TRUE;
         tdata.wfd = 1; /* stdout */
@@ -903,17 +909,17 @@ if(Settings.use_http){	// http-server add-
     else {
         if(!Settings.fileless) {
             int status;
-            char *path = strdup(argv[optind + 2]);
+            char *path = strdup(destfile);
             char *dir = dirname(path);
             status = mkpath(dir, 0777);
             if(status == -1)
                 perror("mkpath");
             free(path);
 
-            tdata.wfd = open(argv[optind + 2], (O_RDWR | O_CREAT | O_TRUNC), 0666);
+            tdata.wfd = open(destfile, (O_RDWR | O_CREAT | O_TRUNC), 0666);
             if(tdata.wfd < 0) {
                 fprintf(stderr, "Cannot open output file: %s\n",
-                        argv[optind + 2]);
+                        destfile);
                 return 1;
             }
         }
