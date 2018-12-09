@@ -571,6 +571,147 @@ show_options(void)
     fprintf(stderr, "--version:           Show version\n");
 }
 
+struct option long_options[] = {
+#ifdef HAVE_LIBARIB25
+    { "b25",       0, NULL, 'b'},
+    { "B25",       0, NULL, 'b'},
+    { "round",     1, NULL, 'r'},
+    { "strip",     0, NULL, 's'},
+    { "emm",       0, NULL, 'm'},
+    { "EMM",       0, NULL, 'm'},
+#endif
+    { "LNB",       1, NULL, 'n'},
+    { "lnb",       1, NULL, 'n'},
+    { "udp",       0, NULL, 'u'},
+    { "addr",      1, NULL, 'a'},
+    { "port",      1, NULL, 'p'},
+    { "http",      1, NULL, 'H'},
+    { "dev",       1, NULL, 'd'},
+    { "help",      0, NULL, 'h'},
+    { "version",   0, NULL, 'v'},
+    { "sid",       1, NULL, 'i'},
+    { "tsid",      1, NULL, 't'},
+    { "lch",       0, NULL, 'c'},
+    {0, 0, NULL, 0} /* terminate */
+};
+
+SETTINGS Settings;
+
+void init_settings() {
+    Settings.use_b25 = FALSE;
+    Settings.use_udp = FALSE;
+    Settings.use_http = FALSE;
+    Settings.port_http = 12345;
+    Settings.port_to = 1234;
+    Settings.use_stdout = FALSE;
+    Settings.fileless = FALSE;
+    Settings.use_splitter = FALSE;
+    Settings.use_lch = FALSE;
+    Settings.host_to = NULL;
+    Settings.dev_num = 0;
+    Settings.sid_list = NULL;
+    Settings.tsid = 0;
+}
+
+void
+process_args(int argc, char **argv, thread_data tdata)
+{
+    decoder_options *dopt = tdata.dopt;
+    int result;
+    int option_index;
+    int val;
+    char *voltage[] = {"0V", "11V", "15V"};
+    while((result = getopt_long(argc, argv, "br:smn:ua:H:p:d:hvitcl:",
+                                long_options, &option_index)) != -1) {
+        switch(result) {
+        case 'b':
+            Settings.use_b25 = TRUE;
+            fprintf(stderr, "using B25...\n");
+            break;
+        case 's':
+            dopt->strip = TRUE;
+            fprintf(stderr, "enable B25 strip\n");
+            break;
+        case 'm':
+            dopt->emm = TRUE;
+            fprintf(stderr, "enable B25 emm processing\n");
+            break;
+        case 'u':
+            Settings.use_udp = TRUE;
+            Settings.host_to = "localhost";
+            fprintf(stderr, "enable UDP broadcasting\n");
+            break;
+        case 'H':
+            Settings.use_http = TRUE;
+            Settings.port_http = atoi(optarg);
+            fprintf(stderr, "creating a http daemon\n");
+            break;
+        case 'h':
+            fprintf(stderr, "\n");
+            show_usage(argv[0]);
+            fprintf(stderr, "\n");
+            show_options();
+            fprintf(stderr, "\n");
+            exit(0);
+            break;
+        case 'v':
+            fprintf(stderr, "%s %s\n", argv[0], version);
+            fprintf(stderr, "recorder command for DVB tuner.\n");
+            exit(0);
+            break;
+        /* following options require argument */
+        case 'n':
+            val = atoi(optarg);
+            switch(val) {
+            case 11:
+                tdata.lnb = 1;
+                break;
+            case 15:
+                tdata.lnb = 2;
+                break;
+            default:
+                tdata.lnb = 0;
+                break;
+            }
+            fprintf(stderr, "LNB = %s\n", voltage[tdata.lnb]);
+            break;
+        case 'r':
+            dopt->round = atoi(optarg);
+            fprintf(stderr, "set round %d\n", dopt->round);
+            break;
+        case 'a':
+            Settings.use_udp = TRUE;
+            Settings.host_to = optarg;
+            fprintf(stderr, "UDP destination address: %s\n", Settings.host_to);
+            break;
+        case 'p':
+            Settings.port_to = atoi(optarg);
+            fprintf(stderr, "UDP port: %d\n", Settings.port_to);
+            break;
+        case 'd':
+            Settings.dev_num = atoi(optarg);
+            fprintf(stderr, "using device: /dev/dvb/adapter%d\n", Settings.dev_num);
+            break;
+        case 'i':
+            Settings.use_splitter = TRUE;
+            Settings.sid_list = optarg;
+            break;
+        case 't':
+            Settings.tsid = atoi(optarg);
+            if(strlen(optarg) > 2){
+                if((optarg[0] == '0') && ((optarg[1] == 'X') ||(optarg[1] == 'x'))){
+                    sscanf(optarg+2, "%x", &Settings.tsid);
+                }
+            }
+            fprintf(stderr, "tsid = 0x%x\n", Settings.tsid);
+            break;
+        case 'c':
+            Settings.use_lch = TRUE;
+            break;
+        }
+    }
+}
+
 void
 cleanup(thread_data *tdata)
 {
@@ -664,143 +805,16 @@ main(int argc, char **argv)
     tdata.lnb = 0;
     tdata.tfd = -1;
 
-    int result;
-    int option_index;
-    struct option long_options[] = {
-#ifdef HAVE_LIBARIB25
-        { "b25",       0, NULL, 'b'},
-        { "B25",       0, NULL, 'b'},
-        { "round",     1, NULL, 'r'},
-        { "strip",     0, NULL, 's'},
-        { "emm",       0, NULL, 'm'},
-        { "EMM",       0, NULL, 'm'},
-#endif
-        { "LNB",       1, NULL, 'n'},
-        { "lnb",       1, NULL, 'n'},
-        { "udp",       0, NULL, 'u'},
-        { "addr",      1, NULL, 'a'},
-        { "port",      1, NULL, 'p'},
-        { "http",      1, NULL, 'H'},
-        { "dev",       1, NULL, 'd'},
-        { "help",      0, NULL, 'h'},
-        { "version",   0, NULL, 'v'},
-        { "sid",       1, NULL, 'i'},
-        { "tsid",      1, NULL, 't'},
-        { "lch",       0, NULL, 'c'},
-        {0, 0, NULL, 0} /* terminate */
-    };
-
-    boolean use_b25 = FALSE;
-    boolean use_udp = FALSE;
-    boolean use_http = FALSE;
-    boolean fileless = FALSE;
-    boolean use_stdout = FALSE;
-    boolean use_splitter = FALSE;
-    boolean use_lch = FALSE;
-    char *host_to = NULL;
-    int port_to = 1234;
-    int port_http = 12345;
     sock_data *sockdata = NULL;
-    int dev_num = 0;
-    int val;
-    char *voltage[] = {"0V", "11V", "15V"};
-    char *sid_list = NULL;
-    unsigned int tsid = 0;
 	int connected_socket, listening_socket;
 	unsigned int len;
 	char *channel, *pch = NULL;
 
-    while((result = getopt_long(argc, argv, "br:smn:ua:H:p:d:hvitcl:",
-                                long_options, &option_index)) != -1) {
-        switch(result) {
-        case 'b':
-            use_b25 = TRUE;
-            fprintf(stderr, "using B25...\n");
-            break;
-        case 's':
-            dopt.strip = TRUE;
-            fprintf(stderr, "enable B25 strip\n");
-            break;
-        case 'm':
-            dopt.emm = TRUE;
-            fprintf(stderr, "enable B25 emm processing\n");
-            break;
-        case 'u':
-            use_udp = TRUE;
-            host_to = "localhost";
-            fprintf(stderr, "enable UDP broadcasting\n");
-            break;
-        case 'H':
-            use_http = TRUE;
-            port_http = atoi(optarg);
-            fprintf(stderr, "creating a http daemon\n");
-            break;
-        case 'h':
-            fprintf(stderr, "\n");
-            show_usage(argv[0]);
-            fprintf(stderr, "\n");
-            show_options();
-            fprintf(stderr, "\n");
-            exit(0);
-            break;
-        case 'v':
-            fprintf(stderr, "%s %s\n", argv[0], version);
-            fprintf(stderr, "recorder command for DVB tuner.\n");
-            exit(0);
-            break;
-        /* following options require argument */
-        case 'n':
-            val = atoi(optarg);
-            switch(val) {
-            case 11:
-                tdata.lnb = 1;
-                break;
-            case 15:
-                tdata.lnb = 2;
-                break;
-            default:
-                tdata.lnb = 0;
-                break;
-            }
-            fprintf(stderr, "LNB = %s\n", voltage[tdata.lnb]);
-            break;
-        case 'r':
-            dopt.round = atoi(optarg);
-            fprintf(stderr, "set round %d\n", dopt.round);
-            break;
-        case 'a':
-            use_udp = TRUE;
-            host_to = optarg;
-            fprintf(stderr, "UDP destination address: %s\n", host_to);
-            break;
-        case 'p':
-            port_to = atoi(optarg);
-            fprintf(stderr, "UDP port: %d\n", port_to);
-            break;
-        case 'd':
-            dev_num = atoi(optarg);
-            fprintf(stderr, "using device: /dev/dvb/adapter%d\n", dev_num);
-            break;
-        case 'i':
-            use_splitter = TRUE;
-            sid_list = optarg;
-            break;
-        case 't':
-            tsid = atoi(optarg);
-            if(strlen(optarg) > 2){
-                if((optarg[0] == '0') && ((optarg[1] == 'X') ||(optarg[1] == 'x'))){
-                    sscanf(optarg+2, "%x", &tsid);
-                }
-            }
-            fprintf(stderr, "tsid = 0x%x\n", tsid);
-            break;
-	case 'c':
-	    use_lch = TRUE;
-	    break;
-        }
-    }
+    init_settings();
 
-if(use_http){	// http-server add-
+    process_args(argc, argv, tdata);
+
+if(Settings.use_http){	// http-server add-
 	fprintf(stderr, "run as a daemon..\n");
 	if(daemon(1,1)){
 		perror("failed to start");
@@ -825,7 +839,7 @@ if(use_http){	// http-server add-
 	}
 		
 	sin.sin_family = AF_INET;
-	sin.sin_port = htons(port_http);
+	sin.sin_port = htons(Settings.port_http);
 	sin.sin_addr.s_addr = htonl(INADDR_ANY);
 
 		
@@ -839,7 +853,7 @@ if(use_http){	// http-server add-
 		perror("listen");
 		return 1;
 	}
-	fprintf(stderr,"listening at port %d\n", port_http);
+	fprintf(stderr,"listening at port %d\n", Settings.port_http);
 	//set rectime to the infinite
 	if(parse_time("-",&tdata.recsec) != 0){
 		return 1;
@@ -848,9 +862,9 @@ if(use_http){	// http-server add-
 		tdata.indefinite = TRUE;
 }else{	// -http-server add
     if(argc - optind < 3) {
-        if(argc - optind == 2 && use_udp) {
+        if(argc - optind == 2 && Settings.use_udp) {
             fprintf(stderr, "Fileless UDP broadcasting\n");
-            fileless = TRUE;
+            Settings.fileless = TRUE;
             tdata.wfd = -1;
         }
         else {
@@ -862,15 +876,15 @@ if(use_http){	// http-server add-
 
     fprintf(stderr, "pid = %d\n", getpid());
 
-    if(use_lch){
-        set_lch(argv[optind], &pch, &sid_list, &tsid);
-        if(sid_list) use_splitter = TRUE;
-        fprintf(stderr, "tsid = 0x%x\n", tsid);
+    if(Settings.use_lch){
+        set_lch(argv[optind], &pch, &Settings.sid_list, &Settings.tsid);
+        if(Settings.sid_list) Settings.use_splitter = TRUE;
+        fprintf(stderr, "tsid = 0x%x\n", Settings.tsid);
     }
     if(pch == NULL) pch = argv[optind];
 
     /* tune */
-    if(tune(pch, &tdata, dev_num, tsid) != 0)
+    if(tune(pch, &tdata, Settings.dev_num, Settings.tsid) != 0)
         return 1;
 
     /* set recsec */
@@ -883,11 +897,11 @@ if(use_http){	// http-server add-
     /* open output file */
     char *destfile = argv[optind + 2];
     if(destfile && !strcmp("-", destfile)) {
-        use_stdout = TRUE;
+        Settings.use_stdout = TRUE;
         tdata.wfd = 1; /* stdout */
     }
     else {
-        if(!fileless) {
+        if(!Settings.fileless) {
             int status;
             char *path = strdup(argv[optind + 2]);
             char *dir = dirname(path);
@@ -907,21 +921,21 @@ if(use_http){	// http-server add-
 }	// http-server add
 
     /* initialize decoder */
-    if(use_b25) {
+    if(Settings.use_b25) {
         decoder = b25_startup(&dopt);
         if(!decoder) {
             fprintf(stderr, "Cannot start b25 decoder\n");
             fprintf(stderr, "Fall back to encrypted recording\n");
-            use_b25 = FALSE;
+            Settings.use_b25 = FALSE;
         }
     }
 
 while(1){	// http-server add-
-	if(use_http){
+	if(Settings.use_http){
 		struct hostent *peer_host;
 		struct sockaddr_in peer_sin;
 		pch = NULL;
-		sid_list = NULL;
+		Settings.sid_list = NULL;
 
 		len = sizeof(peer_sin);
 
@@ -949,33 +963,33 @@ while(1){	// http-server add-
 		channel = strtok(s1,delim);
 		char *sidflg = strtok(NULL,delim);
 		if(sidflg)
-			sid_list = sidflg;
-		if(use_lch)
-			set_lch(channel, &pch, &sid_list, &tsid);
+			Settings.sid_list = sidflg;
+		if(Settings.use_lch)
+			set_lch(channel, &pch, &Settings.sid_list, &Settings.tsid);
 		if(pch == NULL) pch = channel;
 		fprintf(stderr,"channel is %s\n",channel);
 
-		if(sid_list == NULL){
-			use_splitter = FALSE;
+		if(Settings.sid_list == NULL){
+			Settings.use_splitter = FALSE;
 			splitter = NULL;
-		}else if(!strcmp(sid_list,"all")){
-			use_splitter = FALSE;
+		}else if(!strcmp(Settings.sid_list,"all")){
+			Settings.use_splitter = FALSE;
 			splitter = NULL;
 		}else{
-			use_splitter = TRUE;
+			Settings.use_splitter = TRUE;
 		}
 	}	// -http-server add
 
     /* initialize splitter */
-    if(use_splitter) {
-        splitter = split_startup(sid_list);
+    if(Settings.use_splitter) {
+        splitter = split_startup(Settings.sid_list);
         if(splitter->sid_list == NULL) {
             fprintf(stderr, "Cannot start TS splitter\n");
             return 1;
         }
     }
 
-	if(use_http){	// http-server add-
+	if(Settings.use_http){	// http-server add-
 		char header[] =  "HTTP/1.1 200 OK\r\nContent-Type: video/mpeg\r\nCache-Control: no-cache\r\n\r\n";
 		write(connected_socket, header, strlen(header));
 
@@ -983,18 +997,18 @@ while(1){	// http-server add-
 		tdata.wfd = connected_socket;
 
 		//tune
-		if(tune(pch, &tdata, dev_num, tsid) != 0){
+		if(tune(pch, &tdata, Settings.dev_num, Settings.tsid) != 0){
 			fprintf(stderr, "Tuner cannot start recording\n");
 			continue;
 		}
 	}else{	// -http-server add
     /* initialize udp connection */
-    if(use_udp) {
+    if(Settings.use_udp) {
       sockdata = calloc(1, sizeof(sock_data));
       struct in_addr ia;
-      ia.s_addr = inet_addr(host_to);
+      ia.s_addr = inet_addr(Settings.host_to);
       if(ia.s_addr == INADDR_NONE) {
-            struct hostent *hoste = gethostbyname(host_to);
+            struct hostent *hoste = gethostbyname(Settings.host_to);
             if(!hoste) {
                 perror("gethostbyname");
                 return 1;
@@ -1007,7 +1021,7 @@ while(1){	// http-server add-
         }
 
         sockdata->addr.sin_family = AF_INET;
-        sockdata->addr.sin_port = htons (port_to);
+        sockdata->addr.sin_port = htons (Settings.port_to);
         sockdata->addr.sin_addr.s_addr = ia.s_addr;
 
         if(connect(sockdata->sfd, (struct sockaddr *)&sockdata->addr,
@@ -1091,39 +1105,39 @@ while(1){	// http-server add-
 
     /* release queue */
     destroy_queue(p_queue);
-	if(use_http){	// http-server add-
+	if(Settings.use_http){	// http-server add-
 		//reset queue
 		p_queue = create_queue(MAX_QUEUE);
 
 		/* close http socket */
 		close(tdata.wfd);
 
-		fprintf(stderr,"connection closed. still listening at port %d\n",port_http);
+		fprintf(stderr,"connection closed. still listening at port %d\n", Settings.port_http);
 		f_exit = FALSE;
 	}else{	// -http-server add
     /* close output file */
-	if(!use_stdout){
+	if(!Settings.use_stdout){
 		fsync(tdata.wfd);
         close(tdata.wfd);
 	}
 
     /* free socket data */
-    if(use_udp) {
+    if(Settings.use_udp) {
         close(sockdata->sfd);
         free(sockdata);
     }
 
     /* release decoder */
-    if(!use_http)
-    if(use_b25) {
+    if(!Settings.use_http)
+    if(Settings.use_b25) {
         b25_shutdown(decoder);
     }
 	}	// http-server add
-    if(use_splitter) {
+    if(Settings.use_splitter) {
         split_shutdown(splitter);
     }
 
-	if(!use_http)	// http-server add
+	if(!Settings.use_http)	// http-server add
     return 0;
 }	// http-server add
 }

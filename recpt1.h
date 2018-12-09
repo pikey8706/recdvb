@@ -11,7 +11,7 @@
 #define WRITE_SIZE          (1024 * 1024 * 2)
 #define TRUE                1
 #define FALSE               0
-
+typedef int boolean;
 typedef struct _BUFSZ {
     int size;
     u_char buffer[MAX_READ_SIZE];
@@ -28,5 +28,22 @@ typedef struct _QUEUE_T {
     pthread_cond_t cond_used;    // データが空のときに待つための cond
     BUFSZ *buffer[1];    // バッファポインタ
 } QUEUE_T;
+
+typedef struct _SETTINGS {
+    boolean use_b25;
+    boolean use_udp;
+    boolean use_http;
+    int port_http;
+    int port_to;
+    boolean use_stdout;
+    boolean fileless;
+    boolean use_splitter;
+    boolean use_lch;
+    char *host_to;
+    int dev_num;
+    char *sid_list;
+    unsigned int tsid;
+} SETTINGS;
+
 
 #endif
