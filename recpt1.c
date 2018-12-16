@@ -36,6 +36,9 @@
 
 #include "tssplitter_lite.h"
 
+/* Settings */
+SETTINGS Settings;
+
 /* maximum write length at once */
 #define SIZE_CHANK 1316
 
@@ -319,10 +322,6 @@ reader_func(void *p)
     decoder *dec = tdata->decoder;
     splitter *splitter = tdata->splitter;
     int wfd = tdata->wfd;
-    boolean use_b25 = dec ? TRUE : FALSE;
-    boolean use_udp = tdata->sock_data ? TRUE : FALSE;
-    boolean fileless = FALSE;
-    boolean use_splitter = splitter ? TRUE : FALSE;
     int sfd = -1;
     pthread_t signal_thread = tdata->signal_thread;
 //    struct sockaddr_in *addr = NULL;
@@ -337,10 +336,7 @@ reader_func(void *p)
     splitbuf.buffer_size = 0;
     splitbuf.buffer = NULL;
 
-    if(wfd == -1)
-        fileless = TRUE;
-
-    if(use_udp) {
+    if(Settings.use_udp) {
         sfd = tdata->sock_data->sfd;
 //        addr = &tdata->sock_data->addr;
     }
@@ -359,18 +355,18 @@ reader_func(void *p)
 
         buf = sbuf; /* default */
 
-        if(use_b25) {
+        if(Settings.use_b25) {
             code = b25_decode(dec, &sbuf, &dbuf);
             if(code < 0) {
                 fprintf(stderr, "b25_decode failed (code=%d). fall back to encrypted recording.\n", code);
-                use_b25 = FALSE;
+                Settings.use_b25 = FALSE;
             }
             else
                 buf = dbuf;
         }
 
 
-        if(use_splitter) {
+        if(Settings.use_splitter) {
             splitbuf.buffer_filled = 0;
 
             /* allocate split buffer */
@@ -378,7 +374,7 @@ reader_func(void *p)
                 splitbuf.buffer = realloc(splitbuf.buffer, buf.size);
                 if(splitbuf.buffer == NULL) {
                     fprintf(stderr, "split buffer allocation failed\n");
-                    use_splitter = FALSE;
+                    Settings.use_splitter = FALSE;
                     goto fin;
                 }
             }
@@ -390,7 +386,7 @@ reader_func(void *p)
                     if(split_select_finish == TSS_NULL) {
                         /* mallocエラー発生 */
                         fprintf(stderr, "split_select malloc failed\n");
-                        use_splitter = FALSE;
+                        Settings.use_splitter = FALSE;
                         goto fin;
                     }
                     else if(split_select_finish != TSS_SUCCESS) {
@@ -400,7 +396,7 @@ reader_func(void *p)
                         time_t cur_time;
                         time(&cur_time);
                         if(cur_time - tdata->start_time > 4) {
-                            use_splitter = FALSE;
+                            Settings.use_splitter = FALSE;
                             goto fin;
                         }
                         break;
@@ -427,7 +423,7 @@ reader_func(void *p)
         } /* if */
 
 
-        if(!fileless) {
+        if(!Settings.fileless) {
             /* write data to output file */
             int size_remain = buf.size;
             int offset = 0;
@@ -448,7 +444,7 @@ reader_func(void *p)
             }
         }
 
-        if(use_udp && sfd != -1) {
+        if(Settings.use_udp && sfd != -1) {
             /* write data to socket */
             int size_remain = buf.size;
             int offset = 0;
@@ -473,7 +469,7 @@ reader_func(void *p)
 
             buf = sbuf; /* default */
 
-            if(use_b25) {
+            if(Settings.use_b25) {
                 code = b25_finish(dec, &sbuf, &dbuf);
                 if(code < 0)
                     fprintf(stderr, "b25_finish failed\n");
@@ -481,7 +477,7 @@ reader_func(void *p)
                     buf = dbuf;
             }
 
-            if(use_splitter) {
+            if(Settings.use_splitter) {
                 /* 分離対象以外をふるい落とす */
                 code = split_ts(splitter, &buf, &splitbuf);
                 if(code == TSS_NULL) {
@@ -497,7 +493,7 @@ reader_func(void *p)
                 buf.size = splitbuf.buffer_size;
             }
 
-            if(!fileless && !file_err) {
+            if(!Settings.fileless && !file_err) {
                 wc = write(wfd, buf.data, buf.size);
                 if(wc < 0) {
                     perror("write");
@@ -507,7 +503,7 @@ reader_func(void *p)
                 }
             }
 
-            if(use_udp && sfd != -1) {
+            if(Settings.use_udp && sfd != -1) {
                 wc = write(sfd, buf.data, buf.size);
                 if(wc < 0) {
                     if(errno == EPIPE)
@@ -515,7 +511,7 @@ reader_func(void *p)
                 }
             }
 
-            if(use_splitter) {
+            if(Settings.use_splitter) {
                 free(splitbuf.buffer);
                 splitbuf.buffer = NULL;
                 splitbuf.buffer_size = 0;
@@ -594,8 +590,6 @@ struct option long_options[] = {
     { "lch",       0, NULL, 'c'},
     {0, 0, NULL, 0} /* terminate */
 };
-
-SETTINGS Settings;
 
 void init_settings() {
     Settings.use_b25 = FALSE;
