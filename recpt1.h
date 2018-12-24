@@ -31,12 +31,12 @@ typedef struct _QUEUE_T {
 
 typedef struct _SETTINGS {
     boolean use_b25;
+    boolean recording;
     boolean use_udp;
     boolean use_http;
     int port_http;
     int port_to;
     boolean use_stdout;
-    boolean fileless;
     boolean use_splitter;
     boolean use_lch;
     char *host_to;

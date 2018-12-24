@@ -423,7 +423,7 @@ reader_func(void *p)
         } /* if */
 
 
-        if(!Settings.fileless) {
+        if(Settings.recording) {
             /* write data to output file */
             int size_remain = buf.size;
             int offset = 0;
@@ -493,7 +493,7 @@ reader_func(void *p)
                 buf.size = splitbuf.buffer_size;
             }
 
-            if(!Settings.fileless && !file_err) {
+            if(Settings.recording && !file_err) {
                 wc = write(wfd, buf.data, buf.size);
                 if(wc < 0) {
                     perror("write");
@@ -607,12 +607,12 @@ struct option long_options[] = {
 
 void init_settings() {
     Settings.use_b25 = FALSE;
+    Settings.recording = FALSE;
     Settings.use_udp = FALSE;
     Settings.use_http = FALSE;
     Settings.port_http = 12345;
     Settings.port_to = 1234;
     Settings.use_stdout = FALSE;
-    Settings.fileless = FALSE;
     Settings.use_splitter = FALSE;
     Settings.use_lch = FALSE;
     Settings.host_to = NULL;
@@ -728,6 +728,7 @@ process_args(int argc, char **argv, thread_data *tdata)
             break;
         case 'f':
             Settings.destfile = optarg;
+            Settings.recording = TRUE;
             break;
         }
     }
@@ -735,7 +736,7 @@ process_args(int argc, char **argv, thread_data *tdata)
     if (Settings.use_udp) {
         if (Settings.destfile == NULL) {
             fprintf(stderr, "Fileless UDP broadcasting\n");
-            Settings.fileless = TRUE;
+            Settings.recording = FALSE;
             tdata->wfd = -1;
         }
     }
@@ -924,7 +925,7 @@ if(Settings.use_http){	// http-server add-
         tdata.wfd = 1; /* stdout */
     }
     else {
-        if(!Settings.fileless) {
+        if(Settings.recording) {
             int status;
             char *path = strdup(destfile);
             char *dir = dirname(path);
