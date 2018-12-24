@@ -532,11 +532,14 @@ reader_func(void *p)
 void
 show_usage(char *cmd)
 {
+    fprintf(stderr, "Usage: \n%s [--dev devicenumber] [--lnb voltage]", cmd);
 #ifdef HAVE_LIBARIB25
-    fprintf(stderr, "Usage: \n%s [--b25 [--round N] [--strip] [--EMM]] [--udp [--addr hostname --port portnumber]] [--http portnumber] [--dev devicenumber] [--lnb voltage] [--sid SID1,SID2] [--tsid TSID] [--lch] channel rectime destfile\n", cmd);
-#else
-    fprintf(stderr, "Usage: \n%s [--udp [--addr hostname --port portnumber]] [--http portnumber] [--dev devicenumber] [--lnb voltage] [--sid SID1,SID2] [--tsid TSID] [--lch] channel rectime destfile\n", cmd);
+    fprintf(stderr, " [--b25 [--round N] [--strip] [--EMM]]");
 #endif
+    fprintf(stderr, " [--sid SID1,SID2] [--tsid TSID]");
+    fprintf(stderr, " [--udp [--addr hostname --port portnumber]]");
+    fprintf(stderr, " [--http portnumber]");
+    fprintf(stderr, " [--lch] [--channel ch] [--rectime seconds] [--file destfile]\n");
     fprintf(stderr, "\n");
     fprintf(stderr, "Remarks:\n");
     fprintf(stderr, "if channel begins with 'bs##' or 'nd##', means BS/CS channel, '##' is numeric.\n");
@@ -563,8 +566,16 @@ show_options(void)
     fprintf(stderr, "--sid SID1,SID2,...: Specify SID number in CSV format (101,102,...)\n");
     fprintf(stderr, "--tsid TSID:         Specify TSID in decimal or hex, hex begins '0x'\n");
     fprintf(stderr, "--lch:               Specify channel as BS/CS logical channel instead of physical one\n");
+    fprintf(stderr, "--channel:           Specify channel as Digital TV channel (physical one)\n");
+    fprintf(stderr, "--rectime:           Specify recording time in seconds\n");
+    fprintf(stderr, "--file:              Specify file name to record\n");
     fprintf(stderr, "--help:              Show this help\n");
     fprintf(stderr, "--version:           Show version\n");
+}
+
+void show_parameter_error(char *program_name) {
+    fprintf(stderr, "Some required parameters are missing!\n");
+    fprintf(stderr, "Try '%s --help' for more information.\n", program_name);
 }
 
 struct option long_options[] = {
@@ -588,6 +599,9 @@ struct option long_options[] = {
     { "sid",       1, NULL, 'i'},
     { "tsid",      1, NULL, 't'},
     { "lch",       0, NULL, 'c'},
+    { "channel",   1, NULL, 'l'},
+    { "rectime",   1, NULL, 'e'},
+    { "file",      1, NULL, 'f'},
     {0, 0, NULL, 0} /* terminate */
 };
 
@@ -605,6 +619,9 @@ void init_settings() {
     Settings.dev_num = 0;
     Settings.sid_list = NULL;
     Settings.tsid = 0;
+    Settings.channel = NULL;
+    Settings.rectime = NULL;
+    Settings.destfile = NULL;
 }
 
 void
@@ -615,7 +632,7 @@ process_args(int argc, char **argv, thread_data *tdata)
     int option_index;
     int val;
     char *voltage[] = {"0V", "11V", "15V"};
-    while((result = getopt_long(argc, argv, "br:smn:ua:H:p:d:hvitcl:",
+    while((result = getopt_long(argc, argv, "br:smn:ua:H:p:d:hvitcl:e:f:",
                                 long_options, &option_index)) != -1) {
         switch(result) {
         case 'b':
@@ -638,6 +655,7 @@ process_args(int argc, char **argv, thread_data *tdata)
         case 'H':
             Settings.use_http = TRUE;
             Settings.port_http = atoi(optarg);
+            Settings.rectime = "-";
             fprintf(stderr, "creating a http daemon\n");
             break;
         case 'h':
@@ -702,25 +720,30 @@ process_args(int argc, char **argv, thread_data *tdata)
         case 'c':
             Settings.use_lch = TRUE;
             break;
+        case 'l':
+            Settings.channel = optarg;
+            break;
+        case 'e':
+            Settings.rectime = optarg;
+            break;
+        case 'f':
+            Settings.destfile = optarg;
+            break;
         }
     }
 
-    if (!Settings.use_http) {
-        if(argc - optind < 3) {
-            if(argc - optind == 2 && Settings.use_udp) {
-                fprintf(stderr, "Fileless UDP broadcasting\n");
-                Settings.fileless = TRUE;
-                tdata->wfd = -1;
-            }
-            else {
-                fprintf(stderr, "Some required parameters are missing!\n");
-                fprintf(stderr, "Try '%s --help' for more information.\n", argv[0]);
-                exit(1);
-            }
+    if (Settings.use_udp) {
+        if (Settings.destfile == NULL) {
+            fprintf(stderr, "Fileless UDP broadcasting\n");
+            Settings.fileless = TRUE;
+            tdata->wfd = -1;
         }
-        Settings.channel = argv[optind];
-        Settings.rectime = argv[optind + 1];
-        Settings.destfile = argv[optind + 2];
+    }
+    if (!Settings.use_http) {
+        if (Settings.channel == NULL || Settings.rectime == NULL) {
+            show_parameter_error(argv[0]);
+            exit(1);
+        }
     }
 }
 
