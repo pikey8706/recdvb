@@ -338,8 +338,8 @@ reader_func(void *p)
     QUEUE_T *p_queue = tdata->queue;
     decoder *dec = tdata->decoder;
     splitter *splitter = tdata->splitter;
-    int wfd = tdata->wfd;
-    int sfd = -1;
+    int *wfd = &(tdata->wfd);
+    int *sfd = NULL;
     pthread_t signal_thread = tdata->signal_thread;
 //    struct sockaddr_in *addr = NULL;
     BUFSZ *qbuf;
@@ -355,7 +355,7 @@ reader_func(void *p)
 
     boolean use_socket = (Settings.use_udp || Settings.use_http);
     if (use_socket) {
-        sfd = tdata->sock_data->sfd;
+        sfd = &(tdata->sock_data->sfd);
 //        addr = &tdata->sock_data->addr;
     }
 
@@ -441,9 +441,9 @@ reader_func(void *p)
         } /* if */
 
 
-        if(Settings.recording) {
+        if(Settings.recording && wfd != NULL && *wfd > 0) {
             /* write data to output file */
-            wc = write_data(wfd, buf);
+            wc = write_data(*wfd, buf);
             if (wc < 0) {
                 perror("write");
                 file_err = 1;
@@ -452,9 +452,9 @@ reader_func(void *p)
             }
         }
 
-        if (use_socket && sfd != -1) {
+        if (use_socket && sfd != NULL && *sfd != -1) {
             /* write data to socket */
-            wc = write_data(sfd, buf);
+            wc = write_data(*sfd, buf);
             if (wc < 0) {
                 if (errno == EPIPE)
                     pthread_kill(signal_thread, SIGPIPE);
@@ -493,8 +493,8 @@ reader_func(void *p)
                 buf.size = splitbuf.buffer_size;
             }
 
-            if(Settings.recording && !file_err) {
-                wc = write(wfd, buf.data, buf.size);
+            if(Settings.recording && wfd != NULL && *wfd > 0 && !file_err) {
+                wc = write(*wfd, buf.data, buf.size);
                 if(wc < 0) {
                     perror("write");
                     file_err = 1;
@@ -503,8 +503,8 @@ reader_func(void *p)
                 }
             }
 
-            if (use_socket && sfd != -1) {
-                wc = write(sfd, buf.data, buf.size);
+            if (use_socket && sfd != NULL && *sfd != -1) {
+                wc = write(*sfd, buf.data, buf.size);
                 if(wc < 0) {
                     if(errno == EPIPE)
                         pthread_kill(signal_thread, SIGPIPE);
