@@ -313,6 +313,23 @@ dequeue(QUEUE_T *p_queue)
     return buffer;
 }
 
+/* write data to fd */
+int write_data(int fd, ARIB_STD_B25_BUFFER buf) {
+    ssize_t wc = 0;
+    int size_remain = buf.size;
+    int offset = 0;
+    while (size_remain > 0) {
+        int ws = size_remain < SIZE_CHANK ? size_remain : SIZE_CHANK;
+        wc = write(fd, buf.data + offset, ws);
+        if (wc < 0) {
+            break;
+        }
+        size_remain -= wc;
+        offset += wc;
+    }
+    return wc;
+}
+
 /* this function will be reader thread */
 void *
 reader_func(void *p)
@@ -336,7 +353,8 @@ reader_func(void *p)
     splitbuf.buffer_size = 0;
     splitbuf.buffer = NULL;
 
-    if(Settings.use_udp) {
+    boolean use_socket = (Settings.use_udp || Settings.use_http);
+    if (use_socket) {
         sfd = tdata->sock_data->sfd;
 //        addr = &tdata->sock_data->addr;
     }
@@ -425,39 +443,21 @@ reader_func(void *p)
 
         if(Settings.recording) {
             /* write data to output file */
-            int size_remain = buf.size;
-            int offset = 0;
-
-            while(size_remain > 0) {
-                int ws = size_remain < SIZE_CHANK ? size_remain : SIZE_CHANK;
-
-                wc = write(wfd, buf.data + offset, ws);
-                if(wc < 0) {
-                    perror("write");
-                    file_err = 1;
-                    pthread_kill(signal_thread,
-                                 errno == EPIPE ? SIGPIPE : SIGUSR2);
-                    break;
-                }
-                size_remain -= wc;
-                offset += wc;
+            wc = write_data(wfd, buf);
+            if (wc < 0) {
+                perror("write");
+                file_err = 1;
+                pthread_kill(signal_thread,
+                                errno == EPIPE ? SIGPIPE : SIGUSR2);
             }
         }
 
-        if(Settings.use_udp && sfd != -1) {
+        if (use_socket && sfd != -1) {
             /* write data to socket */
-            int size_remain = buf.size;
-            int offset = 0;
-            while(size_remain > 0) {
-                int ws = size_remain < SIZE_CHANK ? size_remain : SIZE_CHANK;
-                wc = write(sfd, buf.data + offset, ws);
-                if(wc < 0) {
-                    if(errno == EPIPE)
-                        pthread_kill(signal_thread, SIGPIPE);
-                    break;
-                }
-                size_remain -= wc;
-                offset += wc;
+            wc = write_data(sfd, buf);
+            if (wc < 0) {
+                if (errno == EPIPE)
+                    pthread_kill(signal_thread, SIGPIPE);
             }
         }
 
@@ -503,7 +503,7 @@ reader_func(void *p)
                 }
             }
 
-            if(Settings.use_udp && sfd != -1) {
+            if (use_socket && sfd != -1) {
                 wc = write(sfd, buf.data, buf.size);
                 if(wc < 0) {
                     if(errno == EPIPE)
@@ -1018,7 +1018,8 @@ while(1){	// http-server add-
 		write(connected_socket, header, strlen(header));
 
 		//set write target to http
-		tdata.wfd = connected_socket;
+        sockdata = calloc(1, sizeof(sock_data));
+        sockdata->sfd = connected_socket;
 
 		//tune
 		if(tune(pch, &tdata, Settings.dev_num, Settings.tsid) != 0){
