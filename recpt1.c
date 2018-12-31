@@ -892,9 +892,8 @@ void * listen_http(void *t) {
     write(connected_socket, header, strlen(header));
 
     //set write target to http
-    sock_data *sockdata = calloc(1, sizeof(sock_data));
-    sockdata->sfd = connected_socket;
-    tdata->sock_data = sockdata;
+    tdata->sock_data = calloc(1, sizeof(sock_data));
+    tdata->sock_data->sfd = connected_socket;
 
     return NULL;
 }
@@ -904,13 +903,41 @@ decoder * prepare_decoder(decoder_options *dopt) {
     /* initialize decoder */
     if (Settings.use_b25) {
         decoder = b25_startup(dopt);
-        if(!decoder) {
+        if (!decoder) {
             fprintf(stderr, "Cannot start b25 decoder\n");
             fprintf(stderr, "Fall back to encrypted recording\n");
             Settings.use_b25 = FALSE;
         }
     }
     return decoder;
+}
+
+int init_udp_connection(sock_data *sockdata) {
+    struct in_addr ia;
+    ia.s_addr = inet_addr(Settings.host_to);
+    if(ia.s_addr == INADDR_NONE) {
+        struct hostent *hoste = gethostbyname(Settings.host_to);
+        if(!hoste) {
+            perror("gethostbyname");
+            return 1;
+        }
+        ia.s_addr = *(in_addr_t*) (hoste->h_addr_list[0]);
+    }
+    if((sockdata->sfd = socket(PF_INET, SOCK_DGRAM, 0)) < 0) {
+        perror("socket");
+        return 1;
+    }
+
+    sockdata->addr.sin_family = AF_INET;
+    sockdata->addr.sin_port = htons (Settings.port_to);
+    sockdata->addr.sin_addr.s_addr = ia.s_addr;
+
+    if(connect(sockdata->sfd, (struct sockaddr *)&sockdata->addr,
+                sizeof(sockdata->addr)) < 0) {
+        perror("connect");
+        return 1;
+    }
+    return 0;
 }
 
 int
@@ -935,7 +962,6 @@ main(int argc, char **argv)
     tdata.lnb = 0;
     tdata.tfd = -1;
 
-    sock_data *sockdata = NULL;
     char *pch = NULL;
 
     init_settings();
@@ -1022,39 +1048,16 @@ while (1) {
     }
 
     /* initialize udp connection */
-    if(Settings.use_udp) {
-        sockdata = calloc(1, sizeof(sock_data));
-        struct in_addr ia;
-        ia.s_addr = inet_addr(Settings.host_to);
-        if(ia.s_addr == INADDR_NONE) {
-            struct hostent *hoste = gethostbyname(Settings.host_to);
-            if(!hoste) {
-                perror("gethostbyname");
-                return 1;
-            }
-            ia.s_addr = *(in_addr_t*) (hoste->h_addr_list[0]);
-        }
-        if((sockdata->sfd = socket(PF_INET, SOCK_DGRAM, 0)) < 0) {
-            perror("socket");
-            return 1;
-        }
-
-        sockdata->addr.sin_family = AF_INET;
-        sockdata->addr.sin_port = htons (Settings.port_to);
-        sockdata->addr.sin_addr.s_addr = ia.s_addr;
-
-        if(connect(sockdata->sfd, (struct sockaddr *)&sockdata->addr,
-                   sizeof(sockdata->addr)) < 0) {
-            perror("connect");
-            return 1;
-        }
+    if (Settings.use_udp) {
+        tdata.sock_data = calloc(1, sizeof(sock_data));
+        int ret = init_udp_connection(tdata.sock_data);
+        if (ret != 0) return ret;
     }
 
     /* prepare thread data */
     tdata.queue = p_queue;
     tdata.decoder = decoder;
     tdata.splitter = splitter;
-    tdata.sock_data = sockdata;
     tdata.tune_persistent = FALSE;
 
     /* spawn signal handler thread */
@@ -1143,9 +1146,9 @@ while (1) {
 	}
 
     /* free socket data */
-    if(Settings.use_udp) {
-        close(sockdata->sfd);
-        free(sockdata);
+    if (tdata.sock_data != NULL) {
+        close(tdata.sock_data->sfd);
+        free(tdata.sock_data);
     }
 
     /* release decoder */
