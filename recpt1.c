@@ -899,6 +899,20 @@ void * listen_http(void *t) {
     return NULL;
 }
 
+decoder * prepare_decoder(decoder_options *dopt) {
+    decoder *decoder = NULL;
+    /* initialize decoder */
+    if (Settings.use_b25) {
+        decoder = b25_startup(dopt);
+        if(!decoder) {
+            fprintf(stderr, "Cannot start b25 decoder\n");
+            fprintf(stderr, "Fall back to encrypted recording\n");
+            Settings.use_b25 = FALSE;
+        }
+    }
+    return decoder;
+}
+
 int
 main(int argc, char **argv)
 {
@@ -927,6 +941,8 @@ main(int argc, char **argv)
     init_settings();
 
     process_args(argc, argv, &tdata);
+
+    decoder = prepare_decoder(tdata.dopt);
 
     if (Settings.use_http){	// http-server add-
         fprintf(stderr, "run as a daemon..\n");
@@ -991,16 +1007,6 @@ main(int argc, char **argv)
                         destfile);
                 return 1;
             }
-        }
-    }
-
-    /* initialize decoder */
-    if(Settings.use_b25) {
-        decoder = b25_startup(&dopt);
-        if(!decoder) {
-            fprintf(stderr, "Cannot start b25 decoder\n");
-            fprintf(stderr, "Fall back to encrypted recording\n");
-            Settings.use_b25 = FALSE;
         }
     }
 
