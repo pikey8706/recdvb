@@ -940,16 +940,27 @@ main(int argc, char **argv)
 
     fprintf(stderr, "pid = %d\n", getpid());
 
-    if(Settings.use_lch){
+    if (Settings.use_lch) {
         set_lch(Settings.channel, &pch, &Settings.sid_list, &Settings.tsid);
-        if(Settings.sid_list) Settings.use_splitter = TRUE;
         fprintf(stderr, "tsid = 0x%x\n", Settings.tsid);
     }
-    if(pch == NULL) pch = Settings.channel;
+    if (pch == NULL) pch = Settings.channel;
+    fprintf(stderr,"channel is %s\n", Settings.channel);
+    if (Settings.sid_list == NULL){
+        Settings.use_splitter = FALSE;
+        splitter = NULL;
+    } else if (!strcmp(Settings.sid_list,"all")){
+        Settings.use_splitter = FALSE;
+        splitter = NULL;
+    } else {
+        Settings.use_splitter = TRUE;
+    }
 
     /* tune */
-    if(tune(pch, &tdata, Settings.dev_num, Settings.tsid) != 0)
+    if (tune(pch, &tdata, Settings.dev_num, Settings.tsid) != 0) {
+        fprintf(stderr, "Tuner cannot start recording\n");
         return 1;
+    }
 
     /* set recsec */
     if(parse_time(Settings.rectime, &tdata.recsec) != 0) // no other thread --yaz
@@ -993,32 +1004,9 @@ main(int argc, char **argv)
         }
     }
 
-while(1){	// http-server add-
-	if(Settings.use_http){
+while (1) {
 
-		if(Settings.use_lch) {
-            set_lch(Settings.channel, &pch, &Settings.sid_list, &Settings.tsid);
-        }
-        if(pch == NULL) pch = Settings.channel;
-		fprintf(stderr,"channel is %s\n", Settings.channel);
-		if(Settings.sid_list == NULL){
-			Settings.use_splitter = FALSE;
-			splitter = NULL;
-		}else if(!strcmp(Settings.sid_list,"all")){
-			Settings.use_splitter = FALSE;
-			splitter = NULL;
-		}else{
-			Settings.use_splitter = TRUE;
-		}
-
-		//tune
-		if(tune(pch, &tdata, Settings.dev_num, Settings.tsid) != 0){
-			fprintf(stderr, "Tuner cannot start recording\n");
-			continue;
-		}
-    }	// -http-server add
-
-    /* initialize splitter */
+        /* initialize splitter */
     if(Settings.use_splitter) {
         splitter = split_startup(Settings.sid_list);
         if(splitter->sid_list == NULL) {
