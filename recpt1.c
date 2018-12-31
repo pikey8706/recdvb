@@ -820,6 +820,85 @@ init_signal_handlers(pthread_t *signal_thread, thread_data *tdata)
     pthread_create(signal_thread, NULL, process_signals, tdata);
 }
 
+void * listen_http(void *t) {
+    thread_data *tdata = (thread_data *)t;
+    int connected_socket, listening_socket;
+    struct sockaddr_in sin;
+	int ret;
+	int sock_optval = 1;
+
+	listening_socket = socket(AF_INET, SOCK_STREAM, 0);
+	if ( listening_socket == -1 ){
+		perror("socket");
+        return NULL;
+	}
+		
+	if ( setsockopt(listening_socket, SOL_SOCKET, SO_REUSEADDR,
+			&sock_optval, sizeof(sock_optval)) == -1 ){
+		perror("setsockopt");
+        return NULL;
+	}
+		
+	sin.sin_family = AF_INET;
+	sin.sin_port = htons(Settings.port_http);
+	sin.sin_addr.s_addr = htonl(INADDR_ANY);
+
+	if ( bind(listening_socket, (struct sockaddr *)&sin, sizeof(sin)) < 0 ){
+		perror("bind");
+        return NULL;
+	}
+		
+	ret = listen(listening_socket, SOMAXCONN);
+	if ( ret == -1 ){
+		perror("listen");
+        return NULL;
+	}
+	fprintf(stderr,"listening at port %d\n", Settings.port_http);
+
+    struct hostent *peer_host;
+    struct sockaddr_in peer_sin;
+    Settings.sid_list = NULL;
+    unsigned int len;
+
+    len = sizeof(peer_sin);
+
+    connected_socket = accept(listening_socket, (struct sockaddr *)&peer_sin, &len);
+    if ( connected_socket == -1 ){
+        perror("accept");
+        return NULL;
+    }
+
+    peer_host = gethostbyaddr((char *)&peer_sin.sin_addr.s_addr,
+                sizeof(peer_sin.sin_addr), AF_INET);
+    if ( peer_host == NULL ){
+        fprintf(stderr, "gethostbyname failed\n");
+        return NULL;
+    }
+
+    fprintf(stderr,"connect from: %s [%s] port %d\n", peer_host->h_name, inet_ntoa(peer_sin.sin_addr), ntohs(peer_sin.sin_port));
+
+    char buf[256];
+    read_line(connected_socket, buf);
+    fprintf(stderr,"request command is %s\n",buf);
+    char s0[256],s1[256],s2[256];
+    sscanf(buf,"%s%s%s",s0,s1,s2);
+    char delim[] = "/";
+    Settings.channel = strtok(s1,delim);
+    char *sidflg = strtok(NULL,delim);
+    if(sidflg)
+        Settings.sid_list = sidflg;
+
+    char header[] =  "HTTP/1.1 200 OK\r\nContent-Type: video/mpeg\r\nCache-Control: no-cache\r\n\r\n";
+    write(connected_socket, header, strlen(header));
+
+    //set write target to http
+    sock_data *sockdata = calloc(1, sizeof(sock_data));
+    sockdata->sfd = connected_socket;
+    tdata->sock_data = sockdata;
+
+    return NULL;
+}
+
 int
 main(int argc, char **argv)
 {
@@ -827,6 +906,7 @@ main(int argc, char **argv)
     pthread_t signal_thread;
     pthread_t reader_thread;
     pthread_t ipc_thread;
+    pthread_t http_thread;
     QUEUE_T *p_queue = create_queue(MAX_QUEUE);
     BUFSZ   *bufptr;
     decoder *decoder = NULL;
@@ -842,61 +922,21 @@ main(int argc, char **argv)
     tdata.tfd = -1;
 
     sock_data *sockdata = NULL;
-	int connected_socket, listening_socket;
-	unsigned int len;
-	char *channel, *pch = NULL;
+    char *pch = NULL;
 
     init_settings();
 
     process_args(argc, argv, &tdata);
 
-if(Settings.use_http){	// http-server add-
-	fprintf(stderr, "run as a daemon..\n");
-	if(daemon(1,1)){
-		perror("failed to start");
-		return 1;
-	}
-	fprintf(stderr, "pid = %d\n", getpid());
+    if (Settings.use_http){	// http-server add-
+        fprintf(stderr, "run as a daemon..\n");
+        if (daemon(1,1)){
+            perror("failed to start");
+            return 1;
+        }
 
-	struct sockaddr_in sin;
-	int ret;
-	int sock_optval = 1;
-		
-	listening_socket = socket(AF_INET, SOCK_STREAM, 0);
-	if ( listening_socket == -1 ){
-		perror("socket");
-		return 1;
-	}
-		
-	if ( setsockopt(listening_socket, SOL_SOCKET, SO_REUSEADDR,
-			&sock_optval, sizeof(sock_optval)) == -1 ){
-		perror("setsockopt");
-		return 1;
-	}
-		
-	sin.sin_family = AF_INET;
-	sin.sin_port = htons(Settings.port_http);
-	sin.sin_addr.s_addr = htonl(INADDR_ANY);
-
-		
-	if ( bind(listening_socket, (struct sockaddr *)&sin, sizeof(sin)) < 0 ){
-		perror("bind");
-		return 1;
-	}
-		
-	ret = listen(listening_socket, SOMAXCONN);
-	if ( ret == -1 ){
-		perror("listen");
-		return 1;
-	}
-	fprintf(stderr,"listening at port %d\n", Settings.port_http);
-	//set rectime to the infinite
-	if(parse_time("-",&tdata.recsec) != 0){
-		return 1;
-	}
-	if(tdata.recsec == -1)
-		tdata.indefinite = TRUE;
-}else{	// -http-server add
+        pthread_create(&http_thread, NULL, listen_http, &tdata);
+    }// -http-server add
 
     fprintf(stderr, "pid = %d\n", getpid());
 
@@ -942,7 +982,6 @@ if(Settings.use_http){	// http-server add-
             }
         }
     }
-}	// http-server add
 
     /* initialize decoder */
     if(Settings.use_b25) {
@@ -956,43 +995,12 @@ if(Settings.use_http){	// http-server add-
 
 while(1){	// http-server add-
 	if(Settings.use_http){
-		struct hostent *peer_host;
-		struct sockaddr_in peer_sin;
-		pch = NULL;
-		Settings.sid_list = NULL;
 
-		len = sizeof(peer_sin);
-
-		connected_socket = accept(listening_socket, (struct sockaddr *)&peer_sin, &len);
-		if ( connected_socket == -1 ){
-			perror("accept");
-			return 1;
-		}
-
-		peer_host = gethostbyaddr((char *)&peer_sin.sin_addr.s_addr,
-				  sizeof(peer_sin.sin_addr), AF_INET);
-		if ( peer_host == NULL ){
-			fprintf(stderr, "gethostbyname failed\n");
-			return 1;
-		}
-
-		fprintf(stderr,"connect from: %s [%s] port %d\n", peer_host->h_name, inet_ntoa(peer_sin.sin_addr), ntohs(peer_sin.sin_port));
-
-		char buf[256];
-		read_line(connected_socket, buf);
-		fprintf(stderr,"request command is %s\n",buf);
-		char s0[256],s1[256],s2[256];
-		sscanf(buf,"%s%s%s",s0,s1,s2);
-		char delim[] = "/";
-		channel = strtok(s1,delim);
-		char *sidflg = strtok(NULL,delim);
-		if(sidflg)
-			Settings.sid_list = sidflg;
-		if(Settings.use_lch)
-			set_lch(channel, &pch, &Settings.sid_list, &Settings.tsid);
-		if(pch == NULL) pch = channel;
-		fprintf(stderr,"channel is %s\n",channel);
-
+		if(Settings.use_lch) {
+            set_lch(Settings.channel, &pch, &Settings.sid_list, &Settings.tsid);
+        }
+        if(pch == NULL) pch = Settings.channel;
+		fprintf(stderr,"channel is %s\n", Settings.channel);
 		if(Settings.sid_list == NULL){
 			Settings.use_splitter = FALSE;
 			splitter = NULL;
@@ -1002,7 +1010,13 @@ while(1){	// http-server add-
 		}else{
 			Settings.use_splitter = TRUE;
 		}
-	}	// -http-server add
+
+		//tune
+		if(tune(pch, &tdata, Settings.dev_num, Settings.tsid) != 0){
+			fprintf(stderr, "Tuner cannot start recording\n");
+			continue;
+		}
+    }	// -http-server add
 
     /* initialize splitter */
     if(Settings.use_splitter) {
@@ -1013,26 +1027,12 @@ while(1){	// http-server add-
         }
     }
 
-	if(Settings.use_http){	// http-server add-
-		char header[] =  "HTTP/1.1 200 OK\r\nContent-Type: video/mpeg\r\nCache-Control: no-cache\r\n\r\n";
-		write(connected_socket, header, strlen(header));
-
-		//set write target to http
-        sockdata = calloc(1, sizeof(sock_data));
-        sockdata->sfd = connected_socket;
-
-		//tune
-		if(tune(pch, &tdata, Settings.dev_num, Settings.tsid) != 0){
-			fprintf(stderr, "Tuner cannot start recording\n");
-			continue;
-		}
-	}else{	// -http-server add
     /* initialize udp connection */
     if(Settings.use_udp) {
-      sockdata = calloc(1, sizeof(sock_data));
-      struct in_addr ia;
-      ia.s_addr = inet_addr(Settings.host_to);
-      if(ia.s_addr == INADDR_NONE) {
+        sockdata = calloc(1, sizeof(sock_data));
+        struct in_addr ia;
+        ia.s_addr = inet_addr(Settings.host_to);
+        if(ia.s_addr == INADDR_NONE) {
             struct hostent *hoste = gethostbyname(Settings.host_to);
             if(!hoste) {
                 perror("gethostbyname");
@@ -1055,7 +1055,7 @@ while(1){	// http-server add-
             return 1;
         }
     }
-	}	// http-server add
+
     /* prepare thread data */
     tdata.queue = p_queue;
     tdata.decoder = decoder;
@@ -1118,11 +1118,13 @@ while(1){	// http-server add-
     msgctl(tdata.msqid, IPC_RMID, NULL);
 
     pthread_kill(signal_thread, SIGUSR1);
+    pthread_kill(http_thread, SIGUSR1);
 
     /* wait for threads */
     pthread_join(reader_thread, NULL);
     pthread_join(signal_thread, NULL);
     pthread_join(ipc_thread, NULL);
+    pthread_join(http_thread, NULL);
 
     /* close tuner */
     if(close_tuner(&tdata) != 0)
