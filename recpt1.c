@@ -655,7 +655,7 @@ process_args(int argc, char **argv, thread_data *tdata)
         case 'H':
             Settings.use_http = TRUE;
             Settings.port_http = atoi(optarg);
-            Settings.rectime = "-";
+            Settings.indefinite = TRUE;
             fprintf(stderr, "creating a http daemon\n");
             break;
         case 'h':
@@ -1005,10 +1005,12 @@ main(int argc, char **argv)
     }
 
     /* set recsec */
-    if(parse_time(Settings.rectime, &tdata.recsec) != 0) // no other thread --yaz
-        return 1;
+    if (Settings.rectime != NULL) {
+        if (parse_time(Settings.rectime, &tdata.recsec) != 0) // no other thread --yaz
+            return 1;
+    }
 
-    if(tdata.recsec == -1)
+    if (Settings.indefinite || tdata.recsec == -1)
         tdata.indefinite = TRUE;
 
     /* open output file */

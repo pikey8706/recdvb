@@ -39,6 +39,7 @@ typedef struct _SETTINGS {
     boolean use_stdout;
     boolean use_splitter;
     boolean use_lch;
+    boolean indefinite;
     char *host_to;
     int dev_num;
     char *sid_list;
