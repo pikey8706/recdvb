@@ -135,6 +135,17 @@ void read_line(int socket, char *p){
 	*p = '\0';
 }
 
+boolean
+checkRecordEnd(thread_data *tdata)
+{
+    boolean isEnd = FALSE;
+    time_t cur_time;
+    time(&cur_time);
+    if ((cur_time - tdata->start_time) >= tdata->recsec) {
+        isEnd = TRUE;
+    }
+    return isEnd;
+}
 
 /* will be ipc message receive thread */
 void *
@@ -170,12 +181,8 @@ mq_recv(void *t)
         }
 
         if(recsec) {
-            time_t cur_time;
-            time(&cur_time);
-            if(cur_time - tdata->start_time > recsec) {
-                f_exit = TRUE;
-            }
-            else {
+            f_exit = checkRecordEnd(tdata);
+            if (!f_exit) {
                 tdata->recsec = recsec;
                 fprintf(stderr, "Total recording time = %d sec\n", recsec);
             }
@@ -463,6 +470,8 @@ reader_func(void *p)
 
         free(qbuf);
         qbuf = NULL;
+
+        
 
         /* normal exit */
         if((f_exit && !p_queue->num_used) || file_err) {
