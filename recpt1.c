@@ -374,6 +374,10 @@ reader_func(void *p)
         if(qbuf == NULL) {
             break;
         }
+        boolean skip_record = (qbuf->size < 0);
+        if (skip_record) {
+            qbuf->size *= -1;
+        }
 
         sbuf.data = qbuf->buffer;
         sbuf.size = qbuf->size;
@@ -447,8 +451,7 @@ reader_func(void *p)
             ;
         } /* if */
 
-
-        if(Settings.recording && wfd != NULL && *wfd > 0) {
+        if (Settings.recording && wfd != NULL && *wfd > 0 && !skip_record) {
             /* write data to output file */
             wc = write_data(*wfd, buf);
             if (wc < 0) {
@@ -470,8 +473,6 @@ reader_func(void *p)
 
         free(qbuf);
         qbuf = NULL;
-
-        
 
         /* normal exit */
         if((f_exit && !p_queue->num_used) || file_err) {
@@ -952,7 +953,6 @@ int init_udp_connection(sock_data *sockdata) {
 int
 main(int argc, char **argv)
 {
-    time_t cur_time;
     pthread_t signal_thread;
     pthread_t reader_thread;
     pthread_t ipc_thread;
@@ -1095,7 +1095,6 @@ while (1) {
         if(f_exit)
             break;
 
-        time(&cur_time);
         bufptr = malloc(sizeof(BUFSZ));
         if(!bufptr) {
             f_exit = TRUE;
@@ -1103,7 +1102,7 @@ while (1) {
         }
         bufptr->size = read(tdata.tfd, bufptr->buffer, MAX_READ_SIZE);
         if(bufptr->size <= 0) {
-            if((cur_time - tdata.start_time) >= tdata.recsec && !tdata.indefinite) {
+            if (checkRecordEnd(&tdata) && !tdata.indefinite) {
                 f_exit = TRUE;
                 enqueue(p_queue, NULL);
                 break;
@@ -1116,9 +1115,12 @@ while (1) {
         enqueue(p_queue, bufptr);
 
         /* stop recording */
-        time(&cur_time);
-        if((cur_time - tdata.start_time) >= tdata.recsec && !tdata.indefinite) {
-            break;
+        if (checkRecordEnd(&tdata)) {
+            // use as a flag indicating not to record.
+            bufptr->size *= -1;
+            if (!tdata.indefinite) {
+                break;
+            }
         }
     }
 
