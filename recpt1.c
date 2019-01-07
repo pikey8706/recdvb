@@ -893,10 +893,16 @@ void * listen_http(void *t) {
     char s0[256],s1[256],s2[256];
     sscanf(buf,"%s%s%s",s0,s1,s2);
     char delim[] = "/";
-    Settings.channel = strtok(s1,delim);
-    char *sidflg = strtok(NULL,delim);
-    if(sidflg)
-        Settings.sid_list = sidflg;
+    char *channel = strtok(s1,delim);
+    char *sid_list = strtok(NULL,delim);
+    if (!Settings.recording) {
+        if (channel)
+            Settings.channel = channel;
+        if (sid_list)
+            Settings.sid_list = sid_list;
+    } else {
+        printf("Ignore channel: %s sid_list: %s\n", channel, sid_list);
+    }
 
     char header[] =  "HTTP/1.1 200 OK\r\nContent-Type: video/mpeg\r\nCache-Control: no-cache\r\n\r\n";
     write(connected_socket, header, strlen(header));
@@ -979,202 +985,207 @@ main(int argc, char **argv)
 
     decoder = prepare_decoder(tdata.dopt);
 
-    if (Settings.use_http){	// http-server add-
+    if (Settings.use_http){
         fprintf(stderr, "run as a daemon..\n");
         if (daemon(1,1)){
             perror("failed to start");
             return 1;
         }
-
-        pthread_create(&http_thread, NULL, listen_http, &tdata);
-    }// -http-server add
+    }
 
     fprintf(stderr, "pid = %d\n", getpid());
 
-    if (Settings.use_lch) {
-        set_lch(Settings.channel, &pch, &Settings.sid_list, &Settings.tsid);
-        fprintf(stderr, "tsid = 0x%x\n", Settings.tsid);
-    }
-    if (pch == NULL) pch = Settings.channel;
-    fprintf(stderr,"channel is %s\n", Settings.channel);
-    if (Settings.sid_list == NULL){
-        Settings.use_splitter = FALSE;
-        splitter = NULL;
-    } else if (!strcmp(Settings.sid_list,"all")){
-        Settings.use_splitter = FALSE;
-        splitter = NULL;
-    } else {
-        Settings.use_splitter = TRUE;
-    }
+    while (Settings.recording || Settings.use_http) {
 
-    /* tune */
-    if (tune(pch, &tdata, Settings.dev_num, Settings.tsid) != 0) {
-        fprintf(stderr, "Tuner cannot start recording\n");
-        return 1;
-    }
+        f_exit = FALSE;
 
-    /* set recsec */
-    if (Settings.rectime != NULL) {
-        if (parse_time(Settings.rectime, &tdata.recsec) != 0) // no other thread --yaz
+        if (Settings.use_http) {
+            pthread_create(&http_thread, NULL, listen_http, &tdata);
+            if (!Settings.recording) {
+                pthread_join(http_thread, NULL);
+            }
+        }
+
+        if (Settings.use_lch) {
+            set_lch(Settings.channel, &pch, &Settings.sid_list, &Settings.tsid);
+            fprintf(stderr, "tsid = 0x%x\n", Settings.tsid);
+        }
+        if (pch == NULL) pch = Settings.channel;
+        fprintf(stderr,"channel is %s\n", Settings.channel);
+        if (Settings.sid_list == NULL){
+            Settings.use_splitter = FALSE;
+            splitter = NULL;
+        } else if (!strcmp(Settings.sid_list,"all")){
+            Settings.use_splitter = FALSE;
+            splitter = NULL;
+        } else {
+            Settings.use_splitter = TRUE;
+        }
+
+        /* tune */
+        if (tune(pch, &tdata, Settings.dev_num, Settings.tsid) != 0) {
+            fprintf(stderr, "Tuner cannot start recording\n");
             return 1;
-    }
+        }
 
-    if (Settings.indefinite || tdata.recsec == -1)
-        tdata.indefinite = TRUE;
+        /* set recsec */
+        if (Settings.rectime != NULL) {
+            if (parse_time(Settings.rectime, &tdata.recsec) != 0) // no other thread --yaz
+                return 1;
+        }
 
-    /* open output file */
-    char *destfile = Settings.destfile;
-    if(destfile && !strcmp("-", destfile)) {
-        Settings.use_stdout = TRUE;
-        tdata.wfd = 1; /* stdout */
-    }
-    else {
-        if(Settings.recording) {
-            int status;
-            char *path = strdup(destfile);
-            char *dir = dirname(path);
-            status = mkpath(dir, 0777);
-            if(status == -1)
-                perror("mkpath");
-            free(path);
+        if (Settings.indefinite || tdata.recsec == -1)
+            tdata.indefinite = TRUE;
 
-            tdata.wfd = open(destfile, (O_RDWR | O_CREAT | O_TRUNC), 0666);
-            if(tdata.wfd < 0) {
-                fprintf(stderr, "Cannot open output file: %s\n",
-                        destfile);
+        /* open output file */
+        char *destfile = Settings.destfile;
+        if(destfile && !strcmp("-", destfile)) {
+            Settings.use_stdout = TRUE;
+            tdata.wfd = 1; /* stdout */
+        }
+        else {
+            if(Settings.recording) {
+                int status;
+                char *path = strdup(destfile);
+                char *dir = dirname(path);
+                status = mkpath(dir, 0777);
+                if(status == -1)
+                    perror("mkpath");
+                free(path);
+
+                tdata.wfd = open(destfile, (O_RDWR | O_CREAT | O_TRUNC), 0666);
+                if(tdata.wfd < 0) {
+                    fprintf(stderr, "Cannot open output file: %s\n",
+                            destfile);
+                    return 1;
+                }
+            }
+        }
+
+        /* initialize splitter */
+        if (Settings.use_splitter) {
+            splitter = split_startup(Settings.sid_list);
+            if(splitter->sid_list == NULL) {
+                fprintf(stderr, "Cannot start TS splitter\n");
                 return 1;
             }
         }
-    }
 
-while (1) {
-
-        /* initialize splitter */
-    if(Settings.use_splitter) {
-        splitter = split_startup(Settings.sid_list);
-        if(splitter->sid_list == NULL) {
-            fprintf(stderr, "Cannot start TS splitter\n");
-            return 1;
+        /* initialize udp connection */
+        if (Settings.use_udp) {
+            tdata.sock_data = calloc(1, sizeof(sock_data));
+            int ret = init_udp_connection(tdata.sock_data);
+            if (ret != 0) return ret;
         }
-    }
 
-    /* initialize udp connection */
-    if (Settings.use_udp) {
-        tdata.sock_data = calloc(1, sizeof(sock_data));
-        int ret = init_udp_connection(tdata.sock_data);
-        if (ret != 0) return ret;
-    }
+        /* prepare thread data */
+        tdata.queue = p_queue;
+        tdata.decoder = decoder;
+        tdata.splitter = splitter;
+        tdata.tune_persistent = FALSE;
 
-    /* prepare thread data */
-    tdata.queue = p_queue;
-    tdata.decoder = decoder;
-    tdata.splitter = splitter;
-    tdata.tune_persistent = FALSE;
+        /* spawn signal handler thread */
+        init_signal_handlers(&signal_thread, &tdata);
 
-    /* spawn signal handler thread */
-    init_signal_handlers(&signal_thread, &tdata);
+        /* spawn reader thread */
+        tdata.signal_thread = signal_thread;
+        pthread_create(&reader_thread, NULL, reader_func, &tdata);
 
-    /* spawn reader thread */
-    tdata.signal_thread = signal_thread;
-    pthread_create(&reader_thread, NULL, reader_func, &tdata);
+        /* spawn ipc thread */
+        key_t key;
+        key = (key_t)getpid();
 
-    /* spawn ipc thread */
-    key_t key;
-    key = (key_t)getpid();
-
-    if ((tdata.msqid = msgget(key, IPC_CREAT | 0666)) < 0) {
-        perror("msgget");
-    }
-    pthread_create(&ipc_thread, NULL, mq_recv, &tdata);
-    fprintf(stderr, "\nRecording...\n");
-
-    time(&tdata.start_time);
-
-    /* read from tuner */
-    while(1) {
-        if(f_exit)
-            break;
-
-        bufptr = malloc(sizeof(BUFSZ));
-        if(!bufptr) {
-            f_exit = TRUE;
-            break;
+        if ((tdata.msqid = msgget(key, IPC_CREAT | 0666)) < 0) {
+            perror("msgget");
         }
-        bufptr->size = read(tdata.tfd, bufptr->buffer, MAX_READ_SIZE);
-        if(bufptr->size <= 0) {
-            if (checkRecordEnd(&tdata) && !tdata.indefinite) {
+        pthread_create(&ipc_thread, NULL, mq_recv, &tdata);
+        fprintf(stderr, "\nRecording...\n");
+
+        time(&tdata.start_time);
+
+        /* read from tuner */
+        while(1) {
+            if(f_exit)
+                break;
+
+            bufptr = malloc(sizeof(BUFSZ));
+            if(!bufptr) {
                 f_exit = TRUE;
-                enqueue(p_queue, NULL);
                 break;
             }
-            else {
-                free(bufptr);
-                continue;
+            bufptr->size = read(tdata.tfd, bufptr->buffer, MAX_READ_SIZE);
+            if(bufptr->size <= 0) {
+                if (checkRecordEnd(&tdata) && !tdata.indefinite) {
+                    f_exit = TRUE;
+                    enqueue(p_queue, NULL);
+                    break;
+                }
+                else {
+                    free(bufptr);
+                    continue;
+                }
             }
-        }
-        enqueue(p_queue, bufptr);
+            enqueue(p_queue, bufptr);
 
-        /* stop recording */
-        if (checkRecordEnd(&tdata)) {
-            // use as a flag indicating not to record.
-            bufptr->size *= -1;
-            if (!tdata.indefinite) {
-                break;
+            if (Settings.recording) {
+                /* stop recording */
+                if (checkRecordEnd(&tdata)) {
+                    // use as a flag indicating not to record.
+                    bufptr->size *= -1;
+                    if (!tdata.indefinite) {
+                        break;
+                    }
+                }
             }
         }
+
+        /* delete message queue*/
+        msgctl(tdata.msqid, IPC_RMID, NULL);
+
+        pthread_kill(signal_thread, SIGUSR1);
+        pthread_kill(http_thread, SIGUSR1);
+
+        /* wait for threads */
+        pthread_join(reader_thread, NULL);
+        pthread_join(signal_thread, NULL);
+        pthread_join(ipc_thread, NULL);
+        pthread_join(http_thread, NULL);
+
+        /* close tuner */
+        if (close_tuner(&tdata) != 0)
+            return 1;
+
+        /* close output file */
+        if (!Settings.use_stdout){
+            fsync(tdata.wfd);
+            close(tdata.wfd);
+        }
+
+        /* free socket data */
+        if (tdata.sock_data != NULL) {
+            close(tdata.sock_data->sfd);
+            free(tdata.sock_data);
+        }
+        Settings.recording = FALSE;
+        Settings.rectime = NULL;
+        Settings.channel = NULL;
+        Settings.destfile = NULL;
+        Settings.sid_list = NULL;
+        Settings.tsid = 0;
     }
-
-    /* delete message queue*/
-    msgctl(tdata.msqid, IPC_RMID, NULL);
-
-    pthread_kill(signal_thread, SIGUSR1);
-    pthread_kill(http_thread, SIGUSR1);
-
-    /* wait for threads */
-    pthread_join(reader_thread, NULL);
-    pthread_join(signal_thread, NULL);
-    pthread_join(ipc_thread, NULL);
-    pthread_join(http_thread, NULL);
-
-    /* close tuner */
-    if(close_tuner(&tdata) != 0)
-        return 1;
 
     /* release queue */
     destroy_queue(p_queue);
-	if(Settings.use_http){	// http-server add-
-		//reset queue
-		p_queue = create_queue(MAX_QUEUE);
-
-		/* close http socket */
-		close(tdata.wfd);
-
-		fprintf(stderr,"connection closed. still listening at port %d\n", Settings.port_http);
-		f_exit = FALSE;
-	}else{	// -http-server add
-    /* close output file */
-	if(!Settings.use_stdout){
-		fsync(tdata.wfd);
-        close(tdata.wfd);
-	}
-
-    /* free socket data */
-    if (tdata.sock_data != NULL) {
-        close(tdata.sock_data->sfd);
-        free(tdata.sock_data);
-    }
 
     /* release decoder */
-    if(!Settings.use_http)
-    if(Settings.use_b25) {
+    if (Settings.use_b25) {
         b25_shutdown(decoder);
     }
-	}	// http-server add
-    if(Settings.use_splitter) {
+
+    /* release splitter */
+    if (Settings.use_splitter) {
         split_shutdown(splitter);
     }
 
-	if(!Settings.use_http)	// http-server add
     return 0;
-}	// http-server add
 }
