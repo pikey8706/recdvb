@@ -865,7 +865,7 @@ void * listen_http(void *t) {
 	}
 	fprintf(stderr,"listening at port %d\n", Settings.port_http);
 
-    struct hostent *peer_host;
+    // struct hostent *peer_host;
     struct sockaddr_in peer_sin;
     Settings.sid_list = NULL;
     unsigned int len;
@@ -878,6 +878,7 @@ void * listen_http(void *t) {
         return NULL;
     }
 
+/*
     peer_host = gethostbyaddr((char *)&peer_sin.sin_addr.s_addr,
                 sizeof(peer_sin.sin_addr), AF_INET);
     if ( peer_host == NULL ){
@@ -886,6 +887,7 @@ void * listen_http(void *t) {
     }
 
     fprintf(stderr,"connect from: %s [%s] port %d\n", peer_host->h_name, inet_ntoa(peer_sin.sin_addr), ntohs(peer_sin.sin_port));
+*/
 
     char buf[256];
     read_line(connected_socket, buf);
@@ -932,12 +934,14 @@ int init_udp_connection(sock_data *sockdata) {
     struct in_addr ia;
     ia.s_addr = inet_addr(Settings.host_to);
     if(ia.s_addr == INADDR_NONE) {
+        /*
         struct hostent *hoste = gethostbyname(Settings.host_to);
         if(!hoste) {
             perror("gethostbyname");
             return 1;
         }
         ia.s_addr = *(in_addr_t*) (hoste->h_addr_list[0]);
+        */
     }
     if((sockdata->sfd = socket(PF_INET, SOCK_DGRAM, 0)) < 0) {
         perror("socket");
