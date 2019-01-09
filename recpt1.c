@@ -867,7 +867,6 @@ void * listen_http(void *t) {
 
     // struct hostent *peer_host;
     struct sockaddr_in peer_sin;
-    Settings.sid_list = NULL;
     unsigned int len;
 
     len = sizeof(peer_sin);
