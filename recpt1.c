@@ -346,9 +346,8 @@ reader_func(void *p)
     decoder *dec = tdata->decoder;
     splitter *splitter = tdata->splitter;
     int *wfd = &(tdata->wfd);
-    int *sfd = NULL;
+    int *sfd = &(tdata->sock_data->sfd);
     pthread_t signal_thread = tdata->signal_thread;
-//    struct sockaddr_in *addr = NULL;
     BUFSZ *qbuf;
     static splitbuf_t splitbuf;
     ARIB_STD_B25_BUFFER sbuf, dbuf, buf;
@@ -361,10 +360,6 @@ reader_func(void *p)
     splitbuf.buffer = NULL;
 
     boolean use_socket = (Settings.use_udp || Settings.use_http);
-    if (use_socket) {
-        sfd = &(tdata->sock_data->sfd);
-//        addr = &tdata->sock_data->addr;
-    }
 
     while(1) {
         ssize_t wc = 0;
@@ -909,7 +904,6 @@ void * listen_http(void *t) {
     write(connected_socket, header, strlen(header));
 
     //set write target to http
-    tdata->sock_data = calloc(1, sizeof(sock_data));
     tdata->sock_data->sfd = connected_socket;
 
     return NULL;
@@ -979,6 +973,8 @@ main(int argc, char **argv)
     tdata.dopt = &dopt;
     tdata.lnb = 0;
     tdata.tfd = -1;
+    tdata.sock_data = calloc(1, sizeof(sock_data));
+    tdata.sock_data->sfd = -1;
 
     char *pch = NULL;
 
@@ -1076,7 +1072,6 @@ main(int argc, char **argv)
 
         /* initialize udp connection */
         if (Settings.use_udp) {
-            tdata.sock_data = calloc(1, sizeof(sock_data));
             int ret = init_udp_connection(tdata.sock_data);
             if (ret != 0) return ret;
         }
@@ -1165,9 +1160,8 @@ main(int argc, char **argv)
         }
 
         /* free socket data */
-        if (tdata.sock_data != NULL) {
+        if (tdata.sock_data->sfd != -1) {
             close(tdata.sock_data->sfd);
-            free(tdata.sock_data);
         }
         Settings.recording = FALSE;
         Settings.rectime = NULL;
