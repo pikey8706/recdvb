@@ -910,15 +910,9 @@ void * listen_http(void *t) {
 }
 
 decoder * prepare_decoder(decoder_options *dopt) {
-    decoder *decoder = NULL;
-    /* initialize decoder */
-    if (Settings.use_b25) {
-        decoder = b25_startup(dopt);
-        if (!decoder) {
-            fprintf(stderr, "Cannot start b25 decoder\n");
-            fprintf(stderr, "Fall back to encrypted recording\n");
-            Settings.use_b25 = FALSE;
-        }
+    decoder *decoder = b25_startup(dopt);
+    if (!decoder) {
+        fprintf(stderr, "Cannot start b25 decoder\n");
     }
     return decoder;
 }
@@ -981,8 +975,6 @@ main(int argc, char **argv)
     init_settings();
 
     process_args(argc, argv, &tdata);
-
-    decoder = prepare_decoder(tdata.dopt);
 
     if (Settings.use_http){
         fprintf(stderr, "run as a daemon..\n");
@@ -1058,6 +1050,15 @@ main(int argc, char **argv)
                             destfile);
                     return 1;
                 }
+            }
+        }
+
+        /* initialize decoder */
+        if (Settings.use_b25) {
+            decoder = prepare_decoder(tdata.dopt);
+            if (!decoder) {
+                Settings.use_b25 = FALSE;
+                fprintf(stderr, "Fall back to encrypted recording\n");
             }
         }
 
@@ -1163,6 +1164,14 @@ main(int argc, char **argv)
         if (tdata.sock_data->sfd != -1) {
             close(tdata.sock_data->sfd);
         }
+
+        /* release decoder */
+        if (Settings.use_b25) {
+            if (!decoder) {
+                b25_shutdown(decoder);
+            }
+        }
+
         Settings.recording = FALSE;
         Settings.rectime = NULL;
         Settings.channel = NULL;
@@ -1173,11 +1182,6 @@ main(int argc, char **argv)
 
     /* release queue */
     destroy_queue(p_queue);
-
-    /* release decoder */
-    if (Settings.use_b25) {
-        b25_shutdown(decoder);
-    }
 
     /* release splitter */
     if (Settings.use_splitter) {
