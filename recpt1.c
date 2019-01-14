@@ -610,6 +610,16 @@ struct option long_options[] = {
     {0, 0, NULL, 0} /* terminate */
 };
 
+void init_channel_settings() {
+    Settings.channel = NULL;
+    Settings.preset_channel = NULL;
+    Settings.sid_list = NULL;
+    Settings.tsid = 0;
+    Settings.recording = FALSE;
+    Settings.rectime = NULL;
+    Settings.destfile = NULL;
+}
+
 void init_settings() {
     Settings.use_b25 = FALSE;
     Settings.recording = FALSE;
@@ -622,12 +632,7 @@ void init_settings() {
     Settings.use_lch = FALSE;
     Settings.host_to = NULL;
     Settings.dev_num = 0;
-    Settings.sid_list = NULL;
-    Settings.tsid = 0;
-    Settings.channel = NULL;
-    Settings.preset_channel = NULL;
-    Settings.rectime = NULL;
-    Settings.destfile = NULL;
+    init_channel_settings();
 }
 
 void
@@ -1182,13 +1187,7 @@ main(int argc, char **argv)
             }
         }
 
-        Settings.channel = NULL;
-        Settings.preset_channel = NULL;
-        Settings.sid_list = NULL;
-        Settings.tsid = 0;
-        Settings.recording = FALSE;
-        Settings.rectime = NULL;
-        Settings.destfile = NULL;
+        init_channel_settings();
     }
 
     /* release queue */
