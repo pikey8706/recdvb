@@ -827,7 +827,7 @@ init_signal_handlers(pthread_t *signal_thread, thread_data *tdata)
 
 void * listen_http(void *t) {
     thread_data *tdata = (thread_data *)t;
-    int connected_socket, listening_socket;
+    int listening_socket;
     struct sockaddr_in sin;
 	int ret;
 	int sock_optval = 1;
@@ -843,7 +843,7 @@ void * listen_http(void *t) {
 		perror("setsockopt");
         return NULL;
 	}
-		
+
 	sin.sin_family = AF_INET;
 	sin.sin_port = htons(Settings.port_http);
 	sin.sin_addr.s_addr = htonl(INADDR_ANY);
@@ -852,7 +852,7 @@ void * listen_http(void *t) {
 		perror("bind");
         return NULL;
 	}
-		
+
 	ret = listen(listening_socket, SOMAXCONN);
 	if ( ret == -1 ){
 		perror("listen");
@@ -860,6 +860,15 @@ void * listen_http(void *t) {
 	}
 	fprintf(stderr,"listening at port %d\n", Settings.port_http);
 
+    tdata->sock_data->listen_sfd = listening_socket;
+
+    return NULL;
+}
+
+void *
+accept_http(void *t) {
+    thread_data *tdata = (thread_data *)t;
+    int connected_socket, listening_socket = tdata->sock_data->listen_sfd;
     // struct hostent *peer_host;
     struct sockaddr_in peer_sin;
     unsigned int len;
@@ -882,7 +891,6 @@ void * listen_http(void *t) {
 
     fprintf(stderr,"connect from: %s [%s] port %d\n", peer_host->h_name, inet_ntoa(peer_sin.sin_addr), ntohs(peer_sin.sin_port));
 */
-
     char buf[256];
     read_line(connected_socket, buf);
     fprintf(stderr,"request command is %s\n",buf);
@@ -982,6 +990,7 @@ main(int argc, char **argv)
             perror("failed to start");
             return 1;
         }
+        listen_http(&tdata);
     }
 
     fprintf(stderr, "pid = %d\n", getpid());
@@ -991,7 +1000,7 @@ main(int argc, char **argv)
         f_exit = FALSE;
 
         if (Settings.use_http) {
-            pthread_create(&http_thread, NULL, listen_http, &tdata);
+            pthread_create(&http_thread, NULL, accept_http, &tdata);
             if (!Settings.recording) {
                 pthread_join(http_thread, NULL);
             }

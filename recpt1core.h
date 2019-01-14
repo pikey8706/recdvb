@@ -47,6 +47,7 @@ typedef int boolean;
 
 typedef struct sock_data {
     int sfd;    /* socket fd */
+    int listen_sfd; /* listening socket fd */
     struct sockaddr_in addr;
 } sock_data;
 
