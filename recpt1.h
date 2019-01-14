@@ -45,6 +45,7 @@ typedef struct _SETTINGS {
     char *sid_list;
     unsigned int tsid;
     char *channel;
+    char *preset_channel;
     char *rectime;
     char *destfile;
 } SETTINGS;

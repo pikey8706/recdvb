@@ -625,6 +625,7 @@ void init_settings() {
     Settings.sid_list = NULL;
     Settings.tsid = 0;
     Settings.channel = NULL;
+    Settings.preset_channel = NULL;
     Settings.rectime = NULL;
     Settings.destfile = NULL;
 }
@@ -978,8 +979,6 @@ main(int argc, char **argv)
     tdata.sock_data = calloc(1, sizeof(sock_data));
     tdata.sock_data->sfd = -1;
 
-    char *pch = NULL;
-
     init_settings();
 
     process_args(argc, argv, &tdata);
@@ -1007,10 +1006,12 @@ main(int argc, char **argv)
         }
 
         if (Settings.use_lch) {
-            set_lch(Settings.channel, &pch, &Settings.sid_list, &Settings.tsid);
+            set_lch(Settings.channel, &Settings.preset_channel, &Settings.sid_list, &Settings.tsid);
             fprintf(stderr, "tsid = 0x%x\n", Settings.tsid);
         }
-        if (pch == NULL) pch = Settings.channel;
+        if (Settings.preset_channel == NULL) {
+            Settings.preset_channel = Settings.channel;
+        }
         fprintf(stderr,"channel is %s\n", Settings.channel);
         if (Settings.sid_list == NULL){
             Settings.use_splitter = FALSE;
@@ -1023,7 +1024,7 @@ main(int argc, char **argv)
         }
 
         /* tune */
-        if (tune(pch, &tdata, Settings.dev_num, Settings.tsid) != 0) {
+        if (tune(Settings.preset_channel, &tdata, Settings.dev_num, Settings.tsid) != 0) {
             fprintf(stderr, "Tuner cannot start recording\n");
             return 1;
         }
@@ -1181,13 +1182,13 @@ main(int argc, char **argv)
             }
         }
 
-        pch = NULL;
-        Settings.recording = FALSE;
-        Settings.rectime = NULL;
         Settings.channel = NULL;
-        Settings.destfile = NULL;
+        Settings.preset_channel = NULL;
         Settings.sid_list = NULL;
         Settings.tsid = 0;
+        Settings.recording = FALSE;
+        Settings.rectime = NULL;
+        Settings.destfile = NULL;
     }
 
     /* release queue */
