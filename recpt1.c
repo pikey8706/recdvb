@@ -1181,6 +1181,7 @@ main(int argc, char **argv)
             }
         }
 
+        pch = NULL;
         Settings.recording = FALSE;
         Settings.rectime = NULL;
         Settings.channel = NULL;
