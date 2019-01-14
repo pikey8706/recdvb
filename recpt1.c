@@ -1031,7 +1031,12 @@ main(int argc, char **argv)
         /* tune */
         if (tune(Settings.preset_channel, &tdata, Settings.dev_num, Settings.tsid) != 0) {
             fprintf(stderr, "Tuner cannot start recording\n");
-            return 1;
+            if (Settings.use_http) {
+                init_channel_settings();
+                continue;
+            } else {
+                return 1;
+            }
         }
 
         /* set recsec */
