@@ -461,8 +461,13 @@ reader_func(void *p)
             /* write data to socket */
             wc = write_data(*sfd, buf);
             if (wc < 0) {
-                if (errno == EPIPE)
-                    pthread_kill(signal_thread, SIGPIPE);
+                if (Settings.recording) {
+                    close(*sfd);
+                    *sfd = -1;
+                } else {
+                    if (errno == EPIPE)
+                        pthread_kill(signal_thread, SIGPIPE);
+                }
             }
         }
 
