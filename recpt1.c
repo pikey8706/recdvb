@@ -1022,13 +1022,11 @@ main(int argc, char **argv)
         if (Settings.preset_channel == NULL) {
             Settings.preset_channel = Settings.channel;
         }
-        fprintf(stderr,"channel is %s\n", Settings.channel);
+        fprintf(stderr,"channel is %s . sid is %s\n", Settings.channel, Settings.sid_list);
         if (Settings.sid_list == NULL){
             Settings.use_splitter = FALSE;
-            splitter = NULL;
         } else if (!strcmp(Settings.sid_list,"all")){
             Settings.use_splitter = FALSE;
-            splitter = NULL;
         } else {
             Settings.use_splitter = TRUE;
         }
@@ -1090,10 +1088,11 @@ main(int argc, char **argv)
         /* initialize splitter */
         if (Settings.use_splitter) {
             splitter = split_startup(Settings.sid_list);
-            if(splitter->sid_list == NULL) {
+            if (splitter == NULL || splitter->sid_list == NULL) {
                 fprintf(stderr, "Cannot start TS splitter\n");
                 return 1;
             }
+            printf("splitter->sid_list: %s\n", *splitter->sid_list);
         }
 
         /* initialize udp connection */
@@ -1205,7 +1204,9 @@ main(int argc, char **argv)
 
     /* release splitter */
     if (Settings.use_splitter) {
-        split_shutdown(splitter);
+        if (splitter != NULL) {
+            split_shutdown(splitter);
+        }
     }
 
     return 0;
