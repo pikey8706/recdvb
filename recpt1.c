@@ -19,6 +19,8 @@
 #include <netdb.h>
 #include <arpa/inet.h>
 #include <netinet/in.h>
+#include <net/if.h>
+//#include <ifaddrs.h>
 
 #include <sys/ipc.h>
 #include <sys/msg.h>
@@ -559,6 +561,7 @@ show_usage(char *cmd)
     fprintf(stderr, " [--sid SID1,SID2] [--tsid TSID]");
     fprintf(stderr, " [--udp [--addr hostname --port portnumber]]");
     fprintf(stderr, " [--http portnumber]");
+    fprintf(stderr, " [--interface network-interface]");
     fprintf(stderr, " [--lch] [--channel ch] [--rectime seconds] [--file destfile]\n");
     fprintf(stderr, "\n");
     fprintf(stderr, "Remarks:\n");
@@ -581,6 +584,7 @@ show_options(void)
     fprintf(stderr, "  --addr hostname:   Hostname or address to connect\n");
     fprintf(stderr, "  --port portnumber: Port number to connect\n");
     fprintf(stderr, "--http portnumber:   Turn on http broadcasting (run as a daemon)\n");
+    fprintf(stderr, "--interface if-name: Specify network interface name (eth0 wlan0, etc)\n");
     fprintf(stderr, "--dev N:             Use DVB device /dev/dvb/adapterN\n");
     fprintf(stderr, "--lnb voltage:       Specify LNB voltage (0, 11, 15)\n");
     fprintf(stderr, "--sid SID1,SID2,...: Specify SID number in CSV format (101,102,...)\n");
@@ -613,6 +617,7 @@ struct option long_options[] = {
     { "addr",      1, NULL, 'a'},
     { "port",      1, NULL, 'p'},
     { "http",      1, NULL, 'H'},
+    { "interface", 1, NULL, 'g'},
     { "dev",       1, NULL, 'd'},
     { "help",      0, NULL, 'h'},
     { "version",   0, NULL, 'v'},
@@ -647,6 +652,8 @@ void init_settings() {
     Settings.use_lch = FALSE;
     Settings.host_to = NULL;
     Settings.dev_num = 0;
+    Settings.local_address = NULL;
+    Settings.interface = NULL;
     init_channel_settings();
 }
 
@@ -683,6 +690,10 @@ process_args(int argc, char **argv, thread_data *tdata)
             Settings.port_http = atoi(optarg);
             Settings.indefinite = TRUE;
             fprintf(stderr, "creating a http daemon\n");
+            break;
+        case 'g':
+            Settings.interface = optarg;
+            fprintf(stderr, "interface is %s\n", Settings.interface);
             break;
         case 'h':
             fprintf(stderr, "\n");
@@ -766,7 +777,14 @@ process_args(int argc, char **argv, thread_data *tdata)
             tdata->wfd = -1;
         }
     }
-    if (!Settings.use_http) {
+    if (Settings.use_http) {
+        if (Settings.interface == NULL) {
+            fprintf(stderr, "Network interface is not specified.\n");
+            show_parameter_error(argv[0]);
+            exit(1);
+        }
+    }
+    else {
         if (Settings.channel == NULL || Settings.rectime == NULL) {
             show_parameter_error(argv[0]);
             exit(1);
@@ -846,6 +864,26 @@ init_signal_handlers(pthread_t *signal_thread, thread_data *tdata)
     pthread_create(signal_thread, NULL, process_signals, tdata);
 }
 
+void
+set_local_address(thread_data *tdata)
+{
+    fprintf(stderr, "set_local_address from interface: %s\n", Settings.interface);
+    if (Settings.interface == NULL) {
+        return;
+    }
+    struct ifreq ifr;
+
+    /* set type IPv4 */
+    ifr.ifr_addr.sa_family = AF_INET;
+
+    /* set interface name */
+    strncpy(ifr.ifr_name, Settings.interface, IFNAMSIZ-1);
+
+    ioctl(tdata->sock_data->listen_sfd, SIOCGIFADDR, &ifr);
+
+    Settings.local_address = inet_ntoa(((struct sockaddr_in *)&ifr.ifr_addr)->sin_addr);
+}
+
 void * listen_http(void *t) {
     thread_data *tdata = (thread_data *)t;
     int listening_socket;
@@ -879,9 +917,13 @@ void * listen_http(void *t) {
 		perror("listen");
         return NULL;
 	}
-	fprintf(stderr,"listening at port %d\n", Settings.port_http);
 
-    tdata->sock_data->listen_sfd = listening_socket;
+        tdata->sock_data->listen_sfd = listening_socket;
+
+        set_local_address(tdata);
+
+	fprintf(stderr,"listening at port %d, local_address %s\n", Settings.port_http, Settings.local_address);
+
 
     return NULL;
 }
@@ -956,11 +998,13 @@ void
 stop_http_accept(thread_data *tdata)
 {
     fprintf(stderr, "stop_http_accept\n");
+    if (Settings.local_address == NULL)
+        return;
 //    sock_data *sockdata = tdata->sock_data;
     int sfd;
     struct sockaddr_in saddr;
     struct in_addr ia;
-    ia.s_addr = inet_addr("192.168.11.7");
+    ia.s_addr = inet_addr(Settings.local_address);
 
     saddr.sin_family = AF_INET;
     saddr.sin_port = htons (Settings.port_http);

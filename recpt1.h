@@ -48,6 +48,8 @@ typedef struct _SETTINGS {
     char *preset_channel;
     char *rectime;
     char *destfile;
+    char *local_address;
+    char *interface;
 } SETTINGS;
 
 void * accept_http(void *);
