@@ -50,5 +50,6 @@ typedef struct _SETTINGS {
     char *destfile;
 } SETTINGS;
 
+void * accept_http(void *);
 
 #endif

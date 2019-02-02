@@ -45,6 +45,9 @@ SETTINGS Settings;
 /* ipc message size */
 #define MSGSZ     255
 
+/* http socket closed */
+#define SOCKET_CLOSED -1
+
 /* globals */
 extern boolean f_exit;
 
@@ -141,9 +144,12 @@ checkRecordEnd(thread_data *tdata)
     boolean isEnd = FALSE;
     time_t cur_time;
     time(&cur_time);
-    if ((cur_time - tdata->start_time) >= tdata->recsec) {
+    int rectime = (int)(cur_time - tdata->start_time);
+    if (rectime >= tdata->recsec) {
         isEnd = TRUE;
+        fprintf(stderr, "Recorded %dsec\n", rectime);
     }
+
     return isEnd;
 }
 
@@ -446,27 +452,36 @@ reader_func(void *p)
             ;
         } /* if */
 
-        if (Settings.recording && wfd != NULL && *wfd > 0 && !skip_record) {
-            /* write data to output file */
-            wc = write_data(*wfd, buf);
-            if (wc < 0) {
-                perror("write");
-                file_err = 1;
-                pthread_kill(signal_thread,
-                                errno == EPIPE ? SIGPIPE : SIGUSR2);
+        if (Settings.recording && wfd != NULL && *wfd > 0) {
+            if (skip_record) {
+                Settings.recording = FALSE;
+                fsync(*sfd);
+                close(*wfd);
+                *wfd = -1;
+            }
+            else {
+                /* write data to output file */
+                wc = write_data(*wfd, buf);
+                if (wc < 0) {
+                    perror("write");
+                    file_err = 1;
+                    pthread_kill(signal_thread,
+                                    errno == EPIPE ? SIGPIPE : SIGUSR2);
+                }
             }
         }
 
-        if (use_socket && sfd != NULL && *sfd != -1) {
+        if (use_socket && sfd != NULL && *sfd != SOCKET_CLOSED) {
             /* write data to socket */
             wc = write_data(*sfd, buf);
             if (wc < 0) {
-                if (Settings.recording) {
-                    close(*sfd);
-                    *sfd = -1;
-                } else {
-                    if (errno == EPIPE)
+                if (errno == EPIPE) {
+                    if (Settings.recording) {
+                        close(*sfd);
+                        *sfd = SOCKET_CLOSED;
+                    } else {
                         pthread_kill(signal_thread, SIGPIPE);
+                    }
                 }
             }
         }
@@ -513,7 +528,7 @@ reader_func(void *p)
                 }
             }
 
-            if (use_socket && sfd != NULL && *sfd != -1) {
+            if (use_socket && sfd != NULL && *sfd != SOCKET_CLOSED) {
                 wc = write(*sfd, buf.data, buf.size);
                 if(wc < 0) {
                     if(errno == EPIPE)
@@ -530,11 +545,6 @@ reader_func(void *p)
             break;
         }
     }
-
-    time_t cur_time;
-    time(&cur_time);
-    fprintf(stderr, "Recorded %dsec\n",
-            (int)(cur_time - tdata->start_time));
 
     return NULL;
 }
@@ -878,6 +888,7 @@ void * listen_http(void *t) {
 
 void *
 accept_http(void *t) {
+    fprintf(stderr, "accept_http\n");
     thread_data *tdata = (thread_data *)t;
     int connected_socket, listening_socket = tdata->sock_data->listen_sfd;
     // struct hostent *peer_host;
@@ -886,6 +897,14 @@ accept_http(void *t) {
 
     len = sizeof(peer_sin);
 
+while (!f_exit) {
+    if (tdata->sock_data->sfd > SOCKET_CLOSED) {
+fprintf(stderr, "sleep 3\n");
+        sleep(3);
+        continue;
+    }
+
+fprintf(stderr, "accept\n");
     connected_socket = accept(listening_socket, (struct sockaddr *)&peer_sin, &len);
     if ( connected_socket == -1 ){
         perror("accept");
@@ -918,6 +937,7 @@ accept_http(void *t) {
     } else {
         printf("Ignore channel: %s sid_list: %s\n", channel, sid_list);
     }
+    fprintf(stderr, "sfd: %d\n", connected_socket);
 
     char header[] =  "HTTP/1.1 200 OK\r\nContent-Type: video/mpeg\r\nCache-Control: no-cache\r\n\r\n";
     write(connected_socket, header, strlen(header));
@@ -925,7 +945,39 @@ accept_http(void *t) {
     //set write target to http
     tdata->sock_data->sfd = connected_socket;
 
+    if (!Settings.recording)
+        break;
+}
+fprintf(stderr, "done accept_http\n");
     return NULL;
+}
+
+void
+stop_http_accept(thread_data *tdata)
+{
+    fprintf(stderr, "stop_http_accept\n");
+//    sock_data *sockdata = tdata->sock_data;
+    int sfd;
+    struct sockaddr_in saddr;
+    struct in_addr ia;
+    ia.s_addr = inet_addr("192.168.11.7");
+
+    saddr.sin_family = AF_INET;
+    saddr.sin_port = htons (Settings.port_http);
+    saddr.sin_addr.s_addr = ia.s_addr;
+
+    if ((sfd = socket(PF_INET, SOCK_STREAM, 0)) < 0) {
+        perror("stop socket");
+        return NULL;
+    }
+
+    if (connect(sfd, (struct sockaddr *)&saddr,
+                sizeof(saddr)) < 0) {
+        perror("failed to connect");
+        return NULL;
+    }
+    close(sfd);
+    fprintf(stderr, "stop connected\n");
 }
 
 decoder * prepare_decoder(decoder_options *dopt) {
@@ -987,7 +1039,7 @@ main(int argc, char **argv)
     tdata.lnb = 0;
     tdata.tfd = -1;
     tdata.sock_data = calloc(1, sizeof(sock_data));
-    tdata.sock_data->sfd = -1;
+    tdata.sock_data->sfd = SOCKET_CLOSED;
 
     init_settings();
 
@@ -1005,12 +1057,14 @@ main(int argc, char **argv)
     fprintf(stderr, "pid = %d\n", getpid());
 
     while (Settings.recording || Settings.use_http) {
+        fprintf(stderr, "loop one start\n");
 
         f_exit = FALSE;
 
         if (Settings.use_http) {
             pthread_create(&http_thread, NULL, accept_http, &tdata);
             if (!Settings.recording) {
+                fprintf(stderr, "join http\n");
                 pthread_join(http_thread, NULL);
             }
         }
@@ -1127,9 +1181,7 @@ main(int argc, char **argv)
         time(&tdata.start_time);
 
         /* read from tuner */
-        while(1) {
-            if(f_exit)
-                break;
+        while (!f_exit) {
 
             bufptr = malloc(sizeof(BUFSZ));
             if(!bufptr) {
@@ -1160,13 +1212,18 @@ main(int argc, char **argv)
                     }
                 }
             }
+            if (!Settings.recording)
+                if (!Settings.use_http || tdata.sock_data->sfd == SOCKET_CLOSED)
+                    f_exit = TRUE;
         }
 
         /* delete message queue*/
         msgctl(tdata.msqid, IPC_RMID, NULL);
 
         pthread_kill(signal_thread, SIGUSR1);
-        pthread_kill(http_thread, SIGUSR1);
+        // pthread_kill(http_thread, SIGUSR1);
+        if (Settings.use_http && tdata.sock_data->sfd == SOCKET_CLOSED)
+            stop_http_accept(&tdata);
 
         /* wait for threads */
         pthread_join(reader_thread, NULL);
@@ -1180,13 +1237,16 @@ main(int argc, char **argv)
 
         /* close output file */
         if (!Settings.use_stdout){
-            fsync(tdata.wfd);
-            close(tdata.wfd);
+            if (tdata.wfd != -1) {
+                fsync(tdata.wfd);
+                close(tdata.wfd);
+            }
         }
 
         /* free socket data */
-        if (tdata.sock_data->sfd != -1) {
+        if (tdata.sock_data->sfd != SOCKET_CLOSED) {
             close(tdata.sock_data->sfd);
+            tdata.sock_data->sfd = SOCKET_CLOSED;
         }
 
         /* release decoder */
