@@ -1024,6 +1024,16 @@ stop_http_accept(thread_data *tdata)
     fprintf(stderr, "stop connected\n");
 }
 
+void
+close_socket(thread_data *tdata)
+{
+    /* free socket data */
+    if (tdata->sock_data->sfd != SOCKET_CLOSED) {
+        close(tdata->sock_data->sfd);
+        tdata->sock_data->sfd = SOCKET_CLOSED;
+    }
+}
+
 decoder * prepare_decoder(decoder_options *dopt) {
     decoder *decoder = b25_startup(dopt);
     if (!decoder) {
@@ -1133,6 +1143,7 @@ main(int argc, char **argv)
         if (tune(Settings.preset_channel, &tdata, Settings.dev_num, Settings.tsid) != 0) {
             fprintf(stderr, "Tuner cannot start recording\n");
             if (Settings.use_http) {
+                close_socket(&tdata);
                 init_channel_settings();
                 continue;
             } else {
@@ -1289,10 +1300,7 @@ main(int argc, char **argv)
         }
 
         /* free socket data */
-        if (tdata.sock_data->sfd != SOCKET_CLOSED) {
-            close(tdata.sock_data->sfd);
-            tdata.sock_data->sfd = SOCKET_CLOSED;
-        }
+        close_socket(&tdata);
 
         /* release decoder */
         if (Settings.use_b25) {
