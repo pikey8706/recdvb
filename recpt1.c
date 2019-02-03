@@ -1273,7 +1273,8 @@ main(int argc, char **argv)
         pthread_join(reader_thread, NULL);
         pthread_join(signal_thread, NULL);
         pthread_join(ipc_thread, NULL);
-        pthread_join(http_thread, NULL);
+        if (Settings.use_http)
+            pthread_join(http_thread, NULL);
 
         /* close tuner */
         if (close_tuner(&tdata) != 0)
